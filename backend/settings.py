@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -31,7 +32,6 @@ ALLOWED_HOSTS = ['*'] #os.getenv('ALLOWED_HOSTS', '').split(',')
 
 
 # Application definition
-
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -39,9 +39,14 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'user',
     'rest_framework',
-    'rest_framework_simplejwt'
+    'rest_framework_simplejwt',
+    'user',
+    'clientes',
+    'categoria',
+    'proveedores',
+    'tarjetabancaria',
+    'gastos',
 ]
 
 MIDDLEWARE = [
@@ -78,6 +83,22 @@ REST_FRAMEWORK = {
     ),
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20
+}
+
+# Configuración de SIMPLE_JWT
+SIMPLE_JWT = {
+    # Duración de 18 horas para el Access Token
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=18),
+    # Se recomienda configurar también el Refresh Token
+    # Aquí un ejemplo de 7 días para el Refresh Token (para que el usuario no tenga que iniciar sesión de nuevo por una semana)
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    # Configuraciones adicionales que puedes necesitar:
+    # 'ROTATE_REFRESH_TOKENS': True, # Opcional: Rotar el Refresh Token al usarlo
+    # 'BLACKLIST_AFTER_ROTATION': True, # Opcional: Poner en lista negra el Refresh Token antiguo
+    # 'AUTH_HEADER_TYPES': ('Bearer',),
+    # 'USER_ID_FIELD': 'id',
+    # 'USER_ID_CLAIM': 'user_id',
+    # ... otras configuraciones ...
 }
 
 WSGI_APPLICATION = 'backend.wsgi.application'
