@@ -9,6 +9,9 @@ from django.db import DatabaseError
 from gastos.models import Gasto, RelacionarGasto
 from user.api.permissions import RolePermission 
 
+from django.db.models import Q # Necesario para el buscador
+from datetime import datetime, time # Necesario para el manejo de fechas
+
 # Roles permitidos para gestionar gastos
 EXPENSE_MANAGER_ROLES = ['admin', 'contador'] 
 
@@ -50,12 +53,59 @@ def create_master_expense(request):
 @permission_classes([IsAuthenticated, RolePermission(EXPENSE_MANAGER_ROLES)])
 def list_master_expenses(request):
     try:
-        gastos = Gasto.objects.select_related('creado_por').order_by('nombre')
+        # Consulta inicial
+        gastos = Gasto.objects.select_related('creado_por').all()
         
+        # 1. Aplicar FILTROS
+        
+        # --- Filtro de Buscador (Search) ---
+        search_query = request.query_params.get('search', None)
+        if search_query:
+            # Filtra por nombre o descripcion
+            gastos = gastos.filter(
+                Q(nombre__icontains=search_query) |
+                Q(descripcion__icontains=search_query)
+            )
+
+        # --- Filtros de Fecha de Inicio y Fecha de Fin (Date Range) ---
+        start_date_str = request.query_params.get('start_date', None)
+        end_date_str = request.query_params.get('end_date', None)
+
+        if start_date_str:
+            try:
+                # Convertir la cadena a objeto datetime.date
+                start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+                # Incluye todo el día de inicio (desde 00:00:00)
+                start_datetime = datetime.combine(start_date, time.min)
+                gastos = gastos.filter(created_at__gte=start_datetime)
+            except ValueError:
+                return Response(
+                    {"error": "El formato de la fecha de inicio debe ser YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        if end_date_str:
+            try:
+                # Convertir la cadena a objeto datetime.date
+                end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+                # Incluye todo el día de fin (hasta 23:59:59.999999)
+                end_datetime = datetime.combine(end_date, time.max)
+                gastos = gastos.filter(created_at__lte=end_datetime)
+            except ValueError:
+                return Response(
+                    {"error": "El formato de la fecha de fin debe ser YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # 2. Aplicar la ordenación (después de los filtros)
+        gastos = gastos.order_by('nombre')
+        
+        # 3. Aplicar paginación
         paginator = PageNumberPagination()
         paginator.page_size = 10 
         paginated_gastos = paginator.paginate_queryset(gastos, request)
 
+        # 4. Serialización manual de los datos
         data = [{
             'id': g.id,
             'nombre': g.nombre,
@@ -67,8 +117,11 @@ def list_master_expenses(request):
         return paginator.get_paginated_response(data)
 
     except Exception as e:
-        return Response({"error": f"Error al listar Gastos Maestros: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+        # Recomendable agregar logging aquí
+        return Response(
+            {"error": f"Error al listar Gastos Maestros: {str(e)}"}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 ## Obtener Gasto (Maestro) por ID (GET)
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, RolePermission(EXPENSE_MANAGER_ROLES)])
@@ -196,12 +249,60 @@ def create_expense_record(request):
 @permission_classes([IsAuthenticated, RolePermission(EXPENSE_MANAGER_ROLES)])
 def list_expense_records(request):
     try:
+        # Consulta inicial
+        # select_related es crucial para permitir la búsqueda en r.gasto.nombre
         registros = RelacionarGasto.objects.select_related('gasto', 'creado_por').all()
         
+        # 1. Aplicar FILTROS
+        
+        # --- Filtro de Buscador (Search) ---
+        search_query = request.query_params.get('search', None)
+        if search_query:
+            # Filtra por la descripción del registro o por el nombre del gasto relacionado
+            registros = registros.filter(
+                Q(descripcion__icontains=search_query) |
+                Q(gasto__nombre__icontains=search_query) # Búsqueda en el campo 'nombre' del modelo 'gasto' relacionado
+            )
+
+        # --- Filtros de Fecha de Inicio y Fecha de Fin (Date Range) ---
+        start_date_str = request.query_params.get('start_date', None)
+        end_date_str = request.query_params.get('end_date', None)
+
+        if start_date_str:
+            try:
+                # Convertir la cadena a objeto datetime.date
+                start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+                # Incluye todo el día de inicio (desde 00:00:00)
+                start_datetime = datetime.combine(start_date, time.min)
+                registros = registros.filter(created_at__gte=start_datetime)
+            except ValueError:
+                return Response(
+                    {"error": "El formato de la fecha de inicio debe ser YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        if end_date_str:
+            try:
+                # Convertir la cadena a objeto datetime.date
+                end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+                # Incluye todo el día de fin (hasta 23:59:59.999999)
+                end_datetime = datetime.combine(end_date, time.max)
+                registros = registros.filter(created_at__lte=end_datetime)
+            except ValueError:
+                return Response(
+                    {"error": "El formato de la fecha de fin debe ser YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # 2. Aplicar la ordenación (por fecha de creación más reciente)
+        registros = registros.order_by('-created_at')
+        
+        # 3. Aplicar paginación
         paginator = PageNumberPagination()
         paginator.page_size = 10 
         paginated_records = paginator.paginate_queryset(registros, request)
 
+        # 4. Serialización manual de los datos
         data = [{
             'id': r.id,
             'tipo_gasto': r.gasto.nombre if r.gasto else 'N/A',
@@ -215,7 +316,6 @@ def list_expense_records(request):
 
     except Exception as e:
         return Response({"error": f"Error al listar registros de gastos: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
 ## Obtener Registro de Gasto por ID (GET)
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, RolePermission(EXPENSE_MANAGER_ROLES)])

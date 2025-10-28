@@ -9,6 +9,9 @@ from django.db import DatabaseError
 from tarjetabancaria.models import TarjetaBancaria
 from user.api.permissions import RolePermission 
 
+from django.db.models import Q # Necesario para el buscador
+from datetime import datetime, time # Necesario para el manejo de fechas
+
 # Roles permitidos para gestionar tarjetas
 CARD_MANAGER_ROLES = ['admin', 'contador'] 
 
@@ -67,23 +70,69 @@ def create_card(request):
 @permission_classes([IsAuthenticated, RolePermission(CARD_MANAGER_ROLES)])
 def list_cards(request):
     try:
-        # TarjetaBancaria.objects solo trae tarjetas NO eliminadas
-        tarjetas = TarjetaBancaria.objects.select_related('creado_por').order_by('-created_at')
+        # Consulta inicial (SoftDeleteManager ya filtra por no eliminadas)
+        tarjetas = TarjetaBancaria.objects.select_related('creado_por').all()
         
-        # Aplicar paginación
-        paginator           = PageNumberPagination()
-        paginator.page_size = 10 
-        paginated_cards     = paginator.paginate_queryset(tarjetas, request)
+        # 1. Aplicar FILTROS
+        
+        # --- Filtro de Buscador (Search) ---
+        search_query = request.query_params.get('search', None)
+        if search_query:
+            # Filtra por nombre o descripcion de la tarjeta
+            tarjetas = tarjetas.filter(
+                Q(nombre__icontains=search_query) |
+                Q(descripcion__icontains=search_query)
+            )
 
-        # Serialización manual de los datos
+        # --- Filtros de Fecha de Inicio y Fecha de Fin (Date Range) ---
+        start_date_str = request.query_params.get('start_date', None)
+        end_date_str = request.query_params.get('end_date', None)
+
+        if start_date_str:
+            try:
+                # Convertir la cadena a objeto datetime.date
+                start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+                # Incluye todo el día de inicio (desde 00:00:00)
+                start_datetime = datetime.combine(start_date, time.min)
+                tarjetas = tarjetas.filter(created_at__gte=start_datetime)
+            except ValueError:
+                return Response(
+                    {"error": "El formato de la fecha de inicio debe ser YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        if end_date_str:
+            try:
+                # Convertir la cadena a objeto datetime.date
+                end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+                # Incluye todo el día de fin (hasta 23:59:59.999999)
+                end_datetime = datetime.combine(end_date, time.max)
+                tarjetas = tarjetas.filter(created_at__lte=end_datetime)
+            except ValueError:
+                return Response(
+                    {"error": "El formato de la fecha de fin debe ser YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # 2. Aplicar la ordenación (después de los filtros)
+        # Se mantiene la ordenación descendente por fecha de creación para mostrar las más recientes primero
+        tarjetas = tarjetas.order_by('-created_at')
+        
+        # 3. Aplicar paginación
+        paginator = PageNumberPagination()
+        paginator.page_size = 10 
+        paginated_cards = paginator.paginate_queryset(tarjetas, request)
+
+        # 4. Serialización manual de los datos
         data = [{
-            'id'                    : t.id,
-            'nombre'                : t.nombre,
-            'descripcion'           : t.descripcion,
-            'pan_ultimos_4'         : t.pan[-4:],
-            'creado_por_username'   : t.creado_por.username if t.creado_por else None,
-            'created_at'            : t.created_at,
-            'updated_at'            : t.updated_at,
+            'id'                  : t.id,
+            'nombre'              : t.nombre,
+            'descripcion'         : t.descripcion,
+            # NOTA: pan_ultimos_4 no se puede usar para filtrar por seguridad/diseño
+            'pan_ultimos_4'       : t.pan[-4:],
+            'creado_por_username' : t.creado_por.username if t.creado_por else None,
+            'created_at'          : t.created_at,
+            'updated_at'          : t.updated_at,
         } for t in paginated_cards]
 
         return paginator.get_paginated_response(data)

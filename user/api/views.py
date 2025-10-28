@@ -9,6 +9,8 @@ from django.db import DatabaseError
 from user.models import User
 from .permissions import RolePermission
 
+from django.db.models import Q # Importar Q para búsquedas complejas
+from datetime import datetime  # Importar datetime para manejar fechas
 
 # Obtener usuario autenticado
 @api_view(['GET'])
@@ -95,17 +97,71 @@ def list_users(request):
     try:
         print("Rol del usuario:", request.user.role)
 
-        # Obtener todos los usuarios
-        users = User.objects.all().values(
-            'id', 'username', 'email', 'first_name', 'last_name', 'role', 'is_active'
+        # 1. Obtener todos los usuarios como un queryset
+        users = User.objects.all()
+
+        # 2. Aplicar FILTROS
+        
+        # --- Filtro de Buscador (Search) ---
+        search_query = request.query_params.get('search', None)
+        if search_query:
+            # Filtra por username, email, first_name o last_name
+            # usando la búsqueda 'icontains' (case-insensitive containment)
+            users = users.filter(
+                Q(username__icontains=search_query) |
+                Q(email__icontains=search_query) |
+                Q(first_name__icontains=search_query) |
+                Q(last_name__icontains=search_query)
+            )
+
+        # --- Filtros de Fecha de Inicio y Fecha de Fin (Date Range) ---
+        start_date_str = request.query_params.get('start_date', None)
+        end_date_str = request.query_params.get('end_date', None)
+
+        if start_date_str:
+            try:
+                # Convertir la cadena a objeto datetime.date
+                start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+                # Filtra usuarios cuya fecha de unión sea mayor o igual a la fecha de inicio
+                users = users.filter(date_joined__gte=start_date)
+            except ValueError:
+                # Manejar el error si el formato de fecha es incorrecto
+                return Response(
+                    {"error": "El formato de la fecha de inicio debe ser YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        if end_date_str:
+            try:
+                # Convertir la cadena a objeto datetime.date
+                end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+                # Filtra usuarios cuya fecha de unión sea menor o igual a la fecha de fin
+                users = users.filter(date_joined__lte=end_date)
+            except ValueError:
+                # Manejar el error si el formato de fecha es incorrecto
+                return Response(
+                    {"error": "El formato de la fecha de fin debe ser YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+                
+        # 3. Seleccionar los campos a devolver (values) y Ordenar
+        # Se ordena por 'id' para asegurar un orden consistente antes de paginar
+        users = users.order_by('id').values(
+            'id', 'username', 'email', 'first_name', 'last_name', 'role', 'is_active', 'date_joined' # Agregué 'date_joined' para que se pueda ver la fecha
         )
 
-        # Aplicar paginación manualmente
+        # 4. Aplicar paginación manualmente
         paginator = PageNumberPagination()
-        paginator.page_size = 1  # puedes ajustar o leer desde settings
+        paginator.page_size = 5  # puedes ajustar o leer desde settings
         paginated_users = paginator.paginate_queryset(users, request)
 
         return paginator.get_paginated_response(paginated_users)
+
+    except Exception as e:
+        return Response(
+            {"error": f"Error fetching users: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
     except Exception as e:
         return Response(

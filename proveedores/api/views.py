@@ -9,6 +9,9 @@ from django.db import DatabaseError
 from proveedores.models import Proveedor
 from user.api.permissions import RolePermission 
 
+from django.db.models import Q      # Necesario para el buscador
+from datetime import datetime, time # Necesario para el manejo de fechas
+
 # Roles permitidos para gestionar proveedores (admin y contador/manager)
 SUPPLIER_MANAGER_ROLES = ['admin', 'contador'] 
 
@@ -79,15 +82,62 @@ def create_supplier(request):
 @permission_classes([IsAuthenticated, RolePermission(SUPPLIER_MANAGER_ROLES)])
 def list_suppliers(request):
     try:
-        # Proveedor.objects solo trae proveedores NO eliminados (SoftDeleteManager)
-        proveedores = Proveedor.objects.select_related('creado_por').order_by('nombre_empresa')
+        # Consulta inicial (SoftDeleteManager ya filtra por no eliminados)
+        proveedores = Proveedor.objects.select_related('creado_por').all()
         
-        # Aplicar paginación
-        paginator           = PageNumberPagination()
+        # 1. Aplicar FILTROS
+        
+        # --- Filtro de Buscador (Search) ---
+        search_query = request.query_params.get('search', None)
+        if search_query:
+            # Filtra por varios campos del proveedor
+            proveedores = proveedores.filter(
+                Q(nombre_empresa__icontains=search_query) |
+                Q(contacto_principal__icontains=search_query) |
+                Q(ruc__icontains=search_query) |
+                Q(email__icontains=search_query) |
+                Q(telefono__icontains=search_query) 
+            )
+
+        # --- Filtros de Fecha de Inicio y Fecha de Fin (Date Range) ---
+        start_date_str = request.query_params.get('start_date', None)
+        end_date_str = request.query_params.get('end_date', None)
+
+        if start_date_str:
+            try:
+                # Convertir la cadena a objeto datetime.date
+                start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+                # Incluye todo el día de inicio (desde 00:00:00)
+                start_datetime = datetime.combine(start_date, time.min)
+                proveedores = proveedores.filter(created_at__gte=start_datetime)
+            except ValueError:
+                return Response(
+                    {"error": "El formato de la fecha de inicio debe ser YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        if end_date_str:
+            try:
+                # Convertir la cadena a objeto datetime.date
+                end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+                # Incluye todo el día de fin (hasta 23:59:59.999999)
+                end_datetime = datetime.combine(end_date, time.max)
+                proveedores = proveedores.filter(created_at__lte=end_datetime)
+            except ValueError:
+                return Response(
+                    {"error": "El formato de la fecha de fin debe ser YYYY-MM-DD."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # 2. Aplicar la ordenación (después de los filtros)
+        proveedores = proveedores.order_by('nombre_empresa')
+        
+        # 3. Aplicar paginación
+        paginator = PageNumberPagination()
         paginator.page_size = 10 
         paginated_suppliers = paginator.paginate_queryset(proveedores, request)
 
-        # Serialización manual de los datos
+        # 4. Serialización manual de los datos
         data = [{
             'id': p.id,
             'nombre_empresa'      : p.nombre_empresa,
