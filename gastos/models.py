@@ -48,6 +48,7 @@ class RelacionarGasto(BaseModel):
         decimal_places=2, 
         verbose_name="Monto Total del Gasto"
     )
+    
     descripcion = models.TextField(
         verbose_name="Descripción Específica del Gasto"
     )

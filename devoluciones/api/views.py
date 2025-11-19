@@ -4,259 +4,260 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.pagination import PageNumberPagination
 from django.shortcuts import get_object_or_404
-from django.db.models import Q, Sum
+from datetime import datetime
+from decimal import Decimal
+from django.db.models import Q
+from user.api.permissions import RolePermission
+from devoluciones.models import Devoluciones
+from ventas.models import Venta, DetalleVenta
+from inventarioproducto.models import InventarioProducto
+from productos.models import Producto
 
-# Importar modelos necesarios
-from user.api.permissions import RolePermission 
-from clientes.models import Cliente
-from tarjetabancaria.models import TarjetaBancaria
-from devoluciones.models import Devoluciones # Usamos el modelo 'Devoluciones' proporcionado por el usuario
+DEVOLUTION_MANAGER_ROLES = ['admin', 'manager', 'contador']
 
-from decimal import Decimal, InvalidOperation
-from datetime import datetime, time
-
-# Roles permitidos para gestionar devoluciones
-DEVOLUTION_MANAGER_ROLES = ['admin', 'manager', 'contador'] 
-
-
-# --- Ayudante de Serialización ---
-def serialize_devolucion(devolucion: Devoluciones):
-    """Serializa un objeto Devoluciones con formato de moneda COP."""
-    
-    try:
-        # Formato: $1.250.000,00
-        valor_cop = "${:,.2f}".format(devolucion.valor).replace(",", "X").replace(".", ",").replace("X", ".")
-    except Exception:
-        valor_cop = f"${devolucion.valor}" 
-
+def serialize_devolucion(dev, productos_dict):
     return {
-        'id': devolucion.id,
-        'valor': valor_cop, # Valor formateado en COP
-        'descripcion': devolucion.descripcion,
-        'fecha_transaccion': devolucion.fecha_transaccion,
-        
-        # Información de las relaciones
-        'cliente_id': devolucion.cliente_id,
-        'cliente_nombre': devolucion.cliente.nombre,
-        'tarjeta_id': devolucion.tarjeta_id,
-        'tarjeta_nombre': devolucion.tarjeta.nombre,
-        
-        'creado_por_username': devolucion.creado_por.username if devolucion.creado_por else None,
-        'created_at': devolucion.created_at,
-        'updated_at': devolucion.updated_at,
-        'deleted_at': devolucion.deleted_at,
+        "id": dev.id,
+        "codigo_venta": dev.codigo_venta,
+        "producto_id": dev.producto_id,
+        "nombre_producto": productos_dict.get(dev.producto_id, "Producto no encontrado"),
+        "cantidad": dev.cantidad,
+        "created_at": dev.created_at,
     }
 
-
-## 1. Crear Devolución (POST)
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, RolePermission(DEVOLUTION_MANAGER_ROLES)])
 def create_devolucion(request):
-    cliente_id = request.data.get('cliente_id')
-    tarjeta_id = request.data.get('tarjeta_id')
-    valor_str = request.data.get('valor')
-    descripcion = request.data.get('descripcion', '')
-    
-    # 1. Validaciones de entrada
-    if not all([cliente_id, tarjeta_id, valor_str]):
+
+    venta_completa_id = request.data.get("venta_completa_id")
+    detalle_venta_id  = request.data.get("detalle_venta_id")
+    codigo_venta      = request.data.get("codigo_venta")
+    producto_id       = request.data.get("producto_id")
+    cantidad          = request.data.get("cantidad")
+
+    if not venta_completa_id or not codigo_venta or not producto_id or not cantidad or not detalle_venta_id:
         return Response(
-            {"error": "Los campos 'cliente_id', 'tarjeta_id' y 'valor' son obligatorios."},
+            {"error": "venta_completa_id, codigo_venta, producto_id, cantidad y detalle_venta_id son obligatorios."},
             status=status.HTTP_400_BAD_REQUEST
         )
-    
+
+    # =============================
+    # 🔍 2. Validar cantidad
+    # =============================
     try:
-        valor = Decimal(valor_str)
-        if valor <= 0:
-            raise InvalidOperation
-    except InvalidOperation:
+        cantidad = int(cantidad)
+        if cantidad <= 0:
+            raise ValueError
+    except:
+        return Response({"error": "Cantidad debe ser un número entero positivo."},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    # =============================
+    # 🔍 1. Obtener venta
+    # =============================
+    venta = get_object_or_404(Venta, pk=venta_completa_id)
+
+    # =============================
+    # 🔍 2. Obtener detalle del producto
+    # =============================
+    try:
+        detalle = DetalleVenta.objects.get(
+            id=detalle_venta_id,
+            venta_id=venta_completa_id,
+            producto_id=producto_id
+        )
+    except DetalleVenta.DoesNotExist:
         return Response(
-            {"error": "El valor de la devolución debe ser un número positivo válido."},
+            {"error": "Este producto no pertenece a la venta indicada."},
             status=status.HTTP_400_BAD_REQUEST
         )
-    
-    try:
-        # 2. Verificar existencia de Cliente y Tarjeta (solo activos)
-        cliente = get_object_or_404(Cliente, pk=cliente_id)
-        tarjeta = get_object_or_404(TarjetaBancaria, pk=tarjeta_id)
-        
-        # 3. Creación del objeto
-        devolucion = Devoluciones.objects.create(
-            cliente=cliente,
-            tarjeta=tarjeta,
-            valor=valor,
-            descripcion=descripcion,
-            creado_por=request.user
+
+    # =============================
+    # 🔍 3. Validar cantidad a devolver
+    # =============================
+    if cantidad > detalle.cantidad:
+        return Response(
+            {"error": f"No se pueden devolver más productos ({cantidad}) que los vendidos ({detalle.cantidad})."},
+            status=status.HTTP_400_BAD_REQUEST
         )
 
-        # Recargar las relaciones para serializar correctamente
-        devolucion_created = Devoluciones.objects.select_related('cliente', 'tarjeta', 'creado_por').get(pk=devolucion.pk)
+    # =============================
+    # 🔥 4. Registrar la devolución
+    # =============================
+    devolucion = Devoluciones.objects.create(
+        codigo_venta=codigo_venta,
+        producto_id=producto_id,
+        cantidad=cantidad
+    )
 
-        return Response(serialize_devolucion(devolucion_created), status=status.HTTP_201_CREATED)
+    # =============================
+    # 🧮 5. Actualizar o eliminar el detalle de venta
+    # =============================
+    if cantidad == detalle.cantidad:
+        detalle.delete()
+    else:
+        detalle.cantidad -= cantidad
+        detalle.save()
+
+    # =============================
+    # 🔁 6. Recalcular subtotal, impuesto y total
+    # =============================
+
+    detalles_actuales = DetalleVenta.objects.filter(venta_id=venta_completa_id)
+
+    nuevo_subtotal = Decimal('0.00')
+    nuevo_impuesto = Decimal('0.00')
+
+    for d in detalles_actuales:
+        subtotal_item = d.precio_unitario * d.cantidad
+        nuevo_subtotal += subtotal_item
+        nuevo_impuesto += subtotal_item * Decimal("0.16")  # IVA 16%
+
+    venta.subtotal = nuevo_subtotal
+    venta.impuesto = nuevo_impuesto
+    venta.total = nuevo_subtotal + nuevo_impuesto
+    venta.save()
+
+    # ======================================================
+    # 7️⃣ SUMAR UNIDADES DEVUELTAS AL INVENTARIO (FIFO simple)
+    # ======================================================
+    try:
+        producto = Producto.objects.get(pk=producto_id)
+
+        # Obtener el inventario más reciente (FIFO básico)
+        inventario = InventarioProducto.objects.filter(
+            producto=producto
+        ).order_by('-fecha_ingreso').first()
+
+        if inventario:
+            inventario.cantidad_unidades += cantidad
+            inventario.save()
+        else:
+            # Si no existe inventario, crear una entrada nueva
+            InventarioProducto.objects.create(
+                producto=producto,
+                cantidad_unidades=cantidad,
+                creado_por=request.user
+            )
 
     except Exception as e:
-        return Response(
-            {"error": f"Error al registrar la devolución: {str(e)}"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+        print("⚠ Error al actualizar inventario:", str(e))
 
+    # =============================
+    # 8. Retornar resultado
+    # =============================
+    return Response({
+        "message": "Devolución realizada correctamente.",
+        "devolucion": serialize_devolucion(devolucion),
+        "venta_actualizada": {
+            "subtotal": venta.subtotal,
+            "impuesto": venta.impuesto,
+            "total": venta.total
+        }
+    }, status=status.HTTP_201_CREATED)
 
-## 2. Listar Devoluciones (GET) - CON FILTROS
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, RolePermission(DEVOLUTION_MANAGER_ROLES)])
 def list_devoluciones(request):
-    try:
-        # Consulta base: solo devoluciones NO eliminadas lógicamente
-        devoluciones = Devoluciones.objects.select_related('cliente', 'tarjeta', 'creado_por').filter(deleted_at__isnull=True)
-        
-        # --- Obtener parámetros de filtros ---
-        search_query = request.query_params.get('search', None)
-        cliente_id_filter = request.query_params.get('cliente_id', None)
-        start_date_str = request.query_params.get('start_date', None) 
-        end_date_str = request.query_params.get('end_date', None) 
-        
-        # --- 1. Aplicar Filtros de Búsqueda (Texto) ---
-        if search_query:
-            # Búsqueda por descripción, nombre de cliente o nombre de tarjeta
-            devoluciones = devoluciones.filter(
-                Q(descripcion__icontains=search_query) |
-                Q(cliente__nombre__icontains=search_query) |
-                Q(tarjeta__nombre__icontains=search_query)
-            )
-        
-        # --- 2. Filtro por Cliente Específico ---
-        if cliente_id_filter:
-            devoluciones = devoluciones.filter(cliente_id=cliente_id_filter)
+    queryset = Devoluciones.objects.filter(deleted_at__isnull=True)
 
-        # --- 3. Aplicar Filtros de Fecha (Rango en fecha_transaccion) ---
-        if start_date_str:
-            try:
-                start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
-                start_datetime = datetime.combine(start_date, time.min)
-                devoluciones = devoluciones.filter(fecha_transaccion__gte=start_datetime)
-            except ValueError:
-                return Response({"error": "Formato de fecha de inicio inválido (YYYY-MM-DD)."}, status=status.HTTP_400_BAD_REQUEST)
+    # ===============================
+    # 🔎 BUSCADOR GLOBAL (search)
+    # ===============================
+    search = request.query_params.get("search")
+    if search:
 
-        if end_date_str:
-            try:
-                end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
-                end_datetime = datetime.combine(end_date, time.max)
-                devoluciones = devoluciones.filter(fecha_transaccion__lte=end_datetime)
-            except ValueError:
-                return Response({"error": "Formato de fecha de fin inválido (YYYY-MM-DD)."}, status=status.HTTP_400_BAD_REQUEST)
+        # 1️⃣ Buscar por código de venta
+        condiciones = Q(codigo_venta__icontains=search)
 
-        # La ordenación por defecto viene del Meta del modelo ('-fecha_transaccion'), pero se puede forzar:
-        devoluciones = devoluciones.order_by('-fecha_transaccion')
+        # 2️⃣ Buscar por nombre del producto (JOIN manual)
+        productos = Producto.objects.filter(nombre__icontains=search)
 
-        # --- 4. Paginación ---
-        paginator = PageNumberPagination()
-        paginator.page_size = 15 
-        paginated_devoluciones = paginator.paginate_queryset(devoluciones, request)
+        if productos.exists():
+            producto_ids = productos.values_list("id", flat=True)
+            condiciones |= Q(producto_id__in=producto_ids)
 
-        # --- 5. Serialización ---
-        data = [serialize_devolucion(d) for d in paginated_devoluciones]
+        # 3️⃣ Buscar por producto_id cuando search es número
+        if search.isdigit():
+            condiciones |= Q(producto_id=int(search))
 
-        # --- 6. Calcular total devuelto (usando el mismo queryset *filtrado*) ---
-        total_devuelto = devoluciones.aggregate(total_valor=Sum('valor'))['total_valor'] or Decimal(0)
-        total_cop = "${:,.2f}".format(total_devuelto).replace(",", "X").replace(".", ",").replace("X", ".")
-        
-        return paginator.get_paginated_response({
-            "results": data,
-            "total_devoluciones": total_cop,
-            "filtros_aplicados": {
-                "search": search_query,
-                "cliente_id": cliente_id_filter,
-                "start_date": start_date_str, 
-                "end_date": end_date_str,
-            }
-        })
+        queryset = queryset.filter(condiciones)
 
-    except Exception as e:
-        print(f"Error en list_devoluciones: {e}") 
-        return Response(
-            {"error": f"Error al obtener la lista de devoluciones: {str(e)}"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+    # ===============================
+    # Rango de fechas
+    # ===============================
+    fecha_inicio = request.query_params.get("start_date")
+    fecha_fin = request.query_params.get("end_date")
 
-## 3. Obtener Detalle de Devolución (GET)
+    if fecha_inicio:
+        fi = datetime.strptime(fecha_inicio, "%Y-%m-%d")
+        queryset = queryset.filter(created_at__date__gte=fi)
+
+    if fecha_fin:
+        ff = datetime.strptime(fecha_fin, "%Y-%m-%d")
+        queryset = queryset.filter(created_at__date__lte=ff)
+
+    queryset = queryset.order_by("-created_at")
+
+    # ===============================
+    # ⚡ OPTIMIZACIÓN
+    # ===============================
+    producto_ids = queryset.values_list("producto_id", flat=True).distinct()
+    productos_dict = {
+        p.id: p.nombre
+        for p in Producto.objects.filter(id__in=producto_ids)
+    }
+
+    # ===============================
+    # PAGINACIÓN
+    # ===============================
+    paginator = PageNumberPagination()
+    paginator.page_size = 20
+    page = paginator.paginate_queryset(queryset, request)
+
+    data = [serialize_devolucion(dev, productos_dict) for dev in page]
+
+    return paginator.get_paginated_response(data)
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated, RolePermission(DEVOLUTION_MANAGER_ROLES)])
 def get_devolucion(request, pk):
-    # Solo busca devoluciones NO eliminadas
-    devolucion = get_object_or_404(
-        Devoluciones.objects.select_related('cliente', 'tarjeta', 'creado_por').filter(deleted_at__isnull=True), 
+    dev = get_object_or_404(
+        Devoluciones.objects.filter(deleted_at__isnull=True),
         pk=pk
     )
-    
-    return Response(serialize_devolucion(devolucion), status=status.HTTP_200_OK)
+    return Response(serialize_devolucion(dev), status=status.HTTP_200_OK)
 
-
-## 4. Actualizar Devolución (PUT/PATCH)
 @api_view(['PUT', 'PATCH'])
 @permission_classes([IsAuthenticated, RolePermission(DEVOLUTION_MANAGER_ROLES)])
 def update_devolucion(request, pk):
+    dev = get_object_or_404(Devoluciones.objects.filter(deleted_at__isnull=True), pk=pk)
+
+    codigo_venta = request.data.get("codigo_venta", dev.codigo_venta)
+    producto_id = request.data.get("producto_id", dev.producto_id)
+    cantidad = request.data.get("cantidad", dev.cantidad)
+
     try:
-        # Solo permite actualizar devoluciones NO eliminadas
-        devolucion = get_object_or_404(Devoluciones.objects.filter(deleted_at__isnull=True), pk=pk)
-        
-        valor_str = request.data.get('valor')
-        descripcion = request.data.get('descripcion', devolucion.descripcion)
-        cliente_id = request.data.get('cliente_id', devolucion.cliente_id)
-        tarjeta_id = request.data.get('tarjeta_id', devolucion.tarjeta_id)
-        
-        # Validación y asignación de valor
-        if valor_str:
-            try:
-                new_valor = Decimal(valor_str)
-                if new_valor <= 0:
-                    raise InvalidOperation
-                devolucion.valor = new_valor
-            except InvalidOperation:
-                return Response(
-                    {"error": "El valor de la devolución debe ser un número positivo válido."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+        cantidad = int(cantidad)
+        if cantidad <= 0:
+            raise ValueError
+    except:
+        return Response({"error": "Cantidad debe ser un número entero positivo."},
+                        status=status.HTTP_400_BAD_REQUEST)
 
-        # Asignación de Cliente
-        if cliente_id != devolucion.cliente_id:
-            devolucion.cliente = get_object_or_404(Cliente, pk=cliente_id)
+    dev.codigo_venta = codigo_venta
+    dev.producto_id = producto_id
+    dev.cantidad = cantidad
+    dev.save()
 
-        # Asignación de Tarjeta
-        if tarjeta_id != devolucion.tarjeta_id:
-            devolucion.tarjeta = get_object_or_404(TarjetaBancaria, pk=tarjeta_id)
-
-        devolucion.descripcion = descripcion
-        devolucion.save()
-
-        # Recargar para serializar las relaciones actualizadas
-        devolucion_updated = Devoluciones.objects.select_related('cliente', 'tarjeta', 'creado_por').get(pk=pk)
-
-        return Response(serialize_devolucion(devolucion_updated), status=status.HTTP_200_OK)
-
-    except Exception as e:
-        return Response(
-            {"error": f"Error al actualizar la devolución: {str(e)}"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+    return Response(serialize_devolucion(dev), status=status.HTTP_200_OK)
 
 
-## 5. Eliminar Devolución (DELETE) - Eliminación Lógica
-@api_view(['DELETE'])
-@permission_classes([IsAuthenticated, RolePermission(DEVOLUTION_MANAGER_ROLES)])
-def delete_devolucion(request, pk):
-    try:
-        # Solo busca devoluciones NO eliminadas
-        devolucion = get_object_or_404(Devoluciones.objects.filter(deleted_at__isnull=True), pk=pk)
-        
-        # Ejecuta el soft delete (establece deleted_at)
-        devolucion.delete() # Asumiendo que BaseModel o SoftDeleteManager manejan la lógica.
-        
-        return Response(
-            {"message": "Devolución eliminada lógicamente exitosamente", "deleted_at": devolucion.deleted_at}, 
-            status=status.HTTP_200_OK
-        )
-    except Exception as e:
-        return Response(
-            {"error": f"Error al ejecutar la eliminación lógica de la devolución: {str(e)}"},
-            status=status.HTTP_500_INTERNAL_SERVER_ERROR
-        )
+    dev = get_object_or_404(Devoluciones.objects.filter(deleted_at__isnull=True), pk=pk)
 
+    dev.delete()  # BaseModel debe manejar deleted_at
+
+    return Response(
+        {"message": "Devolución eliminada correctamente", "deleted_at": dev.deleted_at},
+        status=status.HTTP_200_OK
+    )

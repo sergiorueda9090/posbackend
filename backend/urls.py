@@ -28,6 +28,9 @@ urlpatterns = [
     path('api/user/',                   include('user.api.urls'),                name='user_api'),
     path('api/clients/',                include('clientes.api.urls'),            name='clients_api'),
     path('api/categories/',             include('categoria.api.urls'),           name='categories_api'),
+    path('api/subcategories/',          include('subcategoria.api.urls'),        name='subcategories_api'),
+    path('api/products/',               include('productos.api.urls'),           name='products_api'),
+    path('api/inventory/',              include('inventarioproducto.api.urls'),  name='inventory_api'),
     path('api/suppliers/',              include('proveedores.api.urls'),         name='suppliers_api'),
     path('api/cards/',                  include('tarjetabancaria.api.urls'),     name='cards_api'),
     path('api/gastos/',                 include('gastos.api.urls'),              name='expenses_api'),
@@ -35,7 +38,9 @@ urlpatterns = [
     path('api/cargosnoregistrados/',    include('cargosnoregistrados.api.urls'), name='unregistered_charges_api'),
     path('api/ajustessaldo/',           include('ajustessaldo.api.urls'),        name='adjustments_api'),
     path('api/utilidadocacional/',      include('utilidadocacional.api.urls'),   name='occasional_income_api'),
-
+    path('api/ventas/',                 include('ventas.api.urls'),              name='sales_api'),
+    path('api/devoluciones/',           include('devoluciones.api.urls'),        name='returns_api'),
+    
     path('api/token/',          TokenObtainPairView.as_view(),  name='token_obtain_pair'),
     path('api/token/refresh/',  TokenRefreshView.as_view(),     name='token_refresh'),
 ]

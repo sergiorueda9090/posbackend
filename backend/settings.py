@@ -42,9 +42,13 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'corsheaders',
+    'core',
     'user',
     'clientes',
     'categoria',
+    'subcategoria',
+    'productos',
+    'inventarioproducto',
     'proveedores',
     'tarjetabancaria',
     'gastos',
@@ -52,6 +56,8 @@ INSTALLED_APPS = [
     'cargosnoregistrados',
     'ajustessaldo',
     'utilidadocacional',
+    'ventas',
+    'devoluciones',
 ]
 
 MIDDLEWARE = [
@@ -83,6 +89,22 @@ TEMPLATES = [
         },
     },
 ]
+
+AWS_ACCESS_KEY_ID       = os.getenv('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY   = os.getenv('AWS_SECRET_ACCESS_KEY')
+AWS_STORAGE_BUCKET_NAME = os.getenv('AWS_STORAGE_BUCKET_NAME')
+AWS_S3_REGION_NAME      = os.getenv('AWS_S3_REGION_NAME')
+AWS_QUERYSTRING_AUTH    = os.getenv('AWS_QUERYSTRING_AUTH')
+
+# Dominio del bucket (público)
+AWS_S3_CUSTOM_DOMAIN = f"{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com"
+
+# Este es el almacenamiento por defecto para archivos e imágenes
+DEFAULT_FILE_STORAGE = "storages.backends.s3boto3.S3Boto3Storage"
+
+# Opcional: si quieres definir carpetas base dentro del bucket
+MEDIA_URL = f"https://{AWS_S3_CUSTOM_DOMAIN}/"
+
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (

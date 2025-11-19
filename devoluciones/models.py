@@ -1,71 +1,35 @@
 # recepcion_pago/models.py
+
 from django.db import models
-from user.models import User
-from user.base.models import BaseModel 
-from clientes.models import Cliente          # Importar el modelo Cliente
-from tarjetabancaria.models import TarjetaBancaria  # Importar el modelo TarjetaBancaria
+from user.base.models import BaseModel
 
 class Devoluciones(BaseModel):
     """
-        Modelo para registrar las devoluciones de pago.
-        Hereda de BaseModel para trazabilidad y eliminación lógica.
+    Modelo simple para registrar devoluciones de productos.
+    Solo guarda:
+    - código de venta
+    - ID del producto
+    - cantidad devuelta
     """
-    
-    # --- Relaciones ---
-    
-    # Relación con el Cliente que realiza el pago
-    cliente = models.ForeignKey(
-        Cliente,
-        on_delete=models.PROTECT,  # No permitir eliminar al cliente si tiene pagos asociados
-        related_name='pagos_recibidos',
-        verbose_name="Cliente"
-    )
-    
-    # Relación con la Tarjeta utilizada
-    tarjeta = models.ForeignKey(
-        TarjetaBancaria,
-        on_delete=models.PROTECT,  # No permitir eliminar la tarjeta si tiene pagos asociados
-        related_name='transacciones',
-        verbose_name="Tarjeta Bancaria"
+
+    codigo_venta = models.CharField(
+        max_length=50,
+        verbose_name="Código de la Venta"
     )
 
-    # --- Campos de la Transacción ---
-    
-    # Valor de la transacción
-    valor = models.DecimalField(
-        max_digits=10, 
-        decimal_places=2,
-        verbose_name="Valor de la Transacción"
-    )
-    
-    # Descripción de la transacción
-    descripcion = models.TextField(
-        blank=True, 
-        null=True,
-        verbose_name="Descripción del Pago"
-    )
-    
-    # Fecha y hora en que se registró la transacción (ya cubierta por created_at en BaseModel, pero se añade un campo explícito si se necesita una fecha/hora diferente a la de creación)
-    fecha_transaccion = models.DateTimeField(
-        auto_now_add=True, # Usamos auto_now_add para registrar el momento de la creación
-        verbose_name="Fecha de la Transacción"
+    producto_id = models.IntegerField(
+        verbose_name="ID del Producto"
     )
 
-    # Campo de relación: Quién registró este pago
-    creado_por = models.ForeignKey(
-        User, 
-        on_delete=models.SET_NULL, 
-        null=True, 
-        related_name='pagos_registrados',
-        verbose_name="Registrado por"
+    cantidad = models.PositiveIntegerField(
+        verbose_name="Cantidad Devuelta"
     )
-    
+
     class Meta:
-        verbose_name          = "Devolución de Pago"
-        verbose_name_plural   = "Devoluciones de Pago"
-        db_table              = "devoluciones"
-        # Ordenación por defecto: más reciente primero
-        ordering = ['-fecha_transaccion'] 
+        verbose_name = "Devolución"
+        verbose_name_plural = "Devoluciones"
+        db_table = "devoluciones"
+        ordering = ['-created_at']  # BaseModel ya trae created_at
 
     def __str__(self):
-        return f"Devolución de ${self.valor} por {self.cliente} ({self.fecha_transaccion.strftime('%Y-%m-%d %H:%M')})"
+        return f"Devolución: Venta {self.codigo_venta} - Producto {self.producto_id} - Cantidad {self.cantidad}"

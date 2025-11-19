@@ -130,7 +130,9 @@ def list_cargos(request):
         paginated_cargos = paginator.paginate_queryset(cargos, request)
 
         data = [serialize_cargo(c) for c in paginated_cargos]
-
+        
+        return paginator.get_paginated_response(data)
+    
         return paginator.get_paginated_response({
             "results": data,
             "filtros_aplicados": {

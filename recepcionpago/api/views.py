@@ -34,7 +34,7 @@ def serialize_pago(pago: RecepcionPago):
 
     return {
         'id'                 : pago.id,
-        'valor'              : valor_cop,  # <-- valor formateado en COP
+        'valor'              : pago.valor,  # <-- valor formateado en COP
         'descripcion'        : pago.descripcion,
         'fecha_transaccion'  : pago.fecha_transaccion,
         'cliente_id'         : pago.cliente_id,
@@ -166,6 +166,7 @@ def list_recepciones_pago(request):
         # Calculamos el total con los mismos filtros aplicados al queryset 'pagos'
         total = pagos.aggregate(total_valor=Sum('valor'))['total_valor'] or 0
         total_cop = "${:,.2f}".format(total).replace(",", "X").replace(".", ",").replace("X", ".")
+        return paginator.get_paginated_response(data)
         
         return paginator.get_paginated_response({
             "results"   : data,
