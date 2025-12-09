@@ -3,6 +3,8 @@ from user.models import User
 from user.base.models import BaseModel
 from categoria.models import Categoria
 from subcategoria.models import SubCategoria
+from proveedores.models import Proveedor
+
 import uuid
 import os
 from decimal import Decimal
@@ -24,18 +26,30 @@ class Producto(BaseModel):
         null=True,
         related_name='productos'
     )
+
     subcategoria = models.ForeignKey(
         SubCategoria,
         on_delete=models.SET_NULL,
         null=True,
         related_name='productos'
     )
+
+    proveedor = models.ForeignKey(
+        Proveedor,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='productos_suministrados',
+        default=2
+    )
+
     nombre = models.CharField(max_length=200, unique=True, verbose_name="Nombre del Producto")
     descripcion = models.TextField(blank=True, null=True, verbose_name="Descripción")
     precio_compra = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="Precio de compra")
     porcentaje_ganancia = models.DecimalField(max_digits=5, decimal_places=2, verbose_name="Porcentaje de ganancia (%)")
     precio_final    = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="Precio de venta final")
     codigo_busqueda = models.CharField(max_length=100, unique=True, verbose_name="Código de búsqueda")
+    unidad_medida   = models.CharField(max_length=50, verbose_name="Unidad de medida", default="unidad")
+    genero          = models.CharField(max_length=50, verbose_name="Genero", default="U")
     imagen          = models.ImageField(upload_to=upload_to_unique, blank=True, null=True)
     creado_por = models.ForeignKey(
         User,

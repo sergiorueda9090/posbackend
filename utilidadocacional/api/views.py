@@ -30,7 +30,7 @@ def serialize_utilidad(utilidad: UtilidadOcasional):
 
     return {
         'id': utilidad.id,
-        'valor': valor_cop, # Valor formateado
+        'valor': utilidad.valor,#valor_cop, # Valor formateado
         'observacion': utilidad.observacion,
         'fecha_transaccion': utilidad.fecha_transaccion,
         
@@ -155,7 +155,8 @@ def list_utilidades(request):
         total_utilidad = utilidades.aggregate(total_valor=Sum('valor'))['total_valor'] or Decimal(0)
         total_cop = "${:,.2f}".format(total_utilidad).replace(",", "X").replace(".", ",").replace("X", ".")
 
-
+        return paginator.get_paginated_response(data)
+    
         return paginator.get_paginated_response({
             "results": data,
             "total_utilidad": total_cop,

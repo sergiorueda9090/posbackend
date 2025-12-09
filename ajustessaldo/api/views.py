@@ -30,7 +30,7 @@ def serialize_ajuste(ajuste: AjusteSaldo):
 
     return {
         'id': ajuste.id,
-        'valor': valor_cop, # Valor formateado
+        'valor': ajuste.valor, #valor_cop, # Valor formateado
         'valor_bruto': str(ajuste.valor), # Valor sin formato para cálculos
         'observacion': ajuste.observacion,
         'fecha_transaccion': ajuste.fecha_transaccion,
@@ -153,6 +153,7 @@ def list_ajustes(request):
 
         # --- 5. Serialización ---
         data = [serialize_ajuste(a) for a in paginated_ajustes]
+        return paginator.get_paginated_response(data)
 
         return paginator.get_paginated_response({
             "results": data,

@@ -16,6 +16,7 @@ from inventarioproducto.models import InventarioProducto
 from inventarioproducto.api.views import get_total_unidades_producto_call
 from categoria.models import Categoria
 from subcategoria.models import SubCategoria
+from proveedores.models import Proveedor
 
 from core.utils import remove_thousand_separators
 
@@ -32,15 +33,18 @@ def create_product(request):
     try:
         categoria_id        = request.data.get('categoria_id')
         subcategoria_id     = request.data.get('subcategoria_id')
+        proveedor_id        = request.data.get('proveedor_id')
         nombre              = request.data.get('nombre')
         descripcion         = request.data.get('descripcion', '')
         precio_compra       = request.data.get('precio_compra', '0')
         porcentaje_ganancia = Decimal(request.data.get('porcentaje_ganancia', '0'))
         codigo_busqueda     = request.data.get('codigo_busqueda')
         imagen              = request.FILES.get('imagen')
+        unidad_medida       = request.data.get('unidad_medida')
+        genero              = request.data.get('genero')
         #cantidad_inicial    = int(request.data.get('cantidad', 0))
 
-        if not all([categoria_id, nombre, precio_compra, porcentaje_ganancia, codigo_busqueda]):
+        if not all([categoria_id, nombre, precio_compra, porcentaje_ganancia, codigo_busqueda, unidad_medida, genero, proveedor_id]):
             return Response({"error": "Campos obligatorios faltantes."}, status=status.HTTP_400_BAD_REQUEST)
 
         precio_compra       = Decimal(remove_thousand_separators(precio_compra))
@@ -48,6 +52,7 @@ def create_product(request):
 
         categoria    = get_object_or_404(Categoria, id=categoria_id)
         subcategoria = get_object_or_404(SubCategoria, id=subcategoria_id) if subcategoria_id else None
+        proveedor    = get_object_or_404(Proveedor, id=proveedor_id)
 
         if Producto.objects.filter(Q(nombre__iexact=nombre) | Q(codigo_busqueda__iexact=codigo_busqueda)).exists():
             return Response({"error": "Ya existe un producto con ese nombre o código."}, status=status.HTTP_400_BAD_REQUEST)
@@ -55,11 +60,14 @@ def create_product(request):
         producto = Producto(
             categoria=categoria,
             subcategoria=subcategoria,
+            proveedor=proveedor,
             nombre=nombre,
             descripcion=descripcion,
             precio_compra=precio_compra,
             porcentaje_ganancia=porcentaje_ganancia,
             codigo_busqueda=codigo_busqueda,
+            unidad_medida=unidad_medida,
+            genero=genero,
             imagen=imagen,
             creado_por=request.user
         )
@@ -76,9 +84,13 @@ def create_product(request):
         data = {
             "id": producto.id,
             "nombre": producto.nombre,
+            "descripcion": producto.descripcion,
+            "precio_compra": producto.precio_compra,
+            "porcentaje_ganancia": producto.porcentaje_ganancia,
             "precio_final": producto.precio_final,
             "categoria": producto.categoria.nombre if producto.categoria else None,
             "subcategoria": producto.subcategoria.nombre if producto.subcategoria else None,
+            "unidad_medida": producto.unidad_medida,
         }
         return Response(data, status=status.HTTP_201_CREATED)
 
@@ -100,6 +112,7 @@ def list_products(request):
         search          = request.query_params.get('search')
         categoria_id    = request.query_params.get('categoria_id')
         subcategoria_id = request.query_params.get('subcategoria_id')
+        proveedor_id    = request.query_params.get('proveedor_id')
 
         if search:
             productos = productos.filter(Q(nombre__icontains=search) | Q(codigo_busqueda__icontains=search) | Q(descripcion__icontains=search) | Q(categoria__nombre__icontains=search) | Q(subcategoria__nombre__icontains=search))
@@ -107,7 +120,9 @@ def list_products(request):
             productos = productos.filter(categoria_id=categoria_id)
         if subcategoria_id:
             productos = productos.filter(subcategoria_id=subcategoria_id)
-
+        if proveedor_id:
+            productos = productos.filter(proveedor_id=proveedor_id)
+            
         #Ordenar del más reciente al más antiguo
         productos = productos.order_by('-created_at')
 
@@ -119,6 +134,7 @@ def list_products(request):
             'id'                : p.id,
             'categoria'         : p.categoria.nombre if p.categoria else None,
             'subcategoria'      : p.subcategoria.nombre if p.subcategoria else None,
+            'proveedor'         : p.proveedor.nombre_empresa if p.proveedor else None,
             'nombre'            : p.nombre,
             'descripcion'       : p.descripcion,
             'precio_compra'     : p.precio_compra,
@@ -126,6 +142,8 @@ def list_products(request):
             'precio_final'      : p.precio_final,
             'codigo_busqueda'   : p.codigo_busqueda,
             'imagen_url'        : p.imagen.url if p.imagen else None,
+            'unidad_medida'     : p.unidad_medida,
+            'genero'            : p.genero,
             'creado_por'        : p.creado_por.username if p.creado_por else None,
             'created_at'        : p.created_at,
             'cantidad'          : get_total_unidades_producto_call(p.id)
@@ -148,6 +166,7 @@ def get_product(request, pk):
         "id"                    : producto.id,
         "nombre"                : producto.nombre,
         "descripcion"           : producto.descripcion,
+        "proveedor_id"          : producto.proveedor.id if producto.proveedor else None,
         "precio_compra"         : producto.precio_compra,
         "porcentaje_ganancia"   : producto.porcentaje_ganancia,
         "precio_final"          : producto.precio_final,
@@ -155,6 +174,8 @@ def get_product(request, pk):
         "imagen_url"            : producto.imagen.url if producto.imagen else None,
         "categoria_id"          : producto.categoria.id if producto.categoria else None,
         "subcategoria_id"       : producto.subcategoria.id if producto.subcategoria else None,
+        "unidad_medida"         : producto.unidad_medida,
+        "genero"                : producto.genero,
         "inventario"            : producto.inventario.cantidad_unidades if hasattr(producto, 'inventario') else 0,
         "creado_por"            : producto.creado_por.username if producto.creado_por else None,
     }
@@ -172,23 +193,30 @@ def update_product(request, id):
     try:
         categoria_id        = request.data.get('categoria_id')
         subcategoria_id     = request.data.get('subcategoria_id')
+        proveedor_id        = request.data.get('proveedor_id')
         nombre              = request.data.get('nombre', producto.nombre)
         descripcion         = request.data.get('descripcion', producto.descripcion)
         precio_compra       = request.data.get('precio_compra', producto.precio_compra)
         porcentaje_ganancia = request.data.get('porcentaje_ganancia', producto.porcentaje_ganancia)
         codigo_busqueda     = request.data.get('codigo_busqueda', producto.codigo_busqueda)
         imagen              = request.FILES.get('imagen')
+        unidad_medida       = request.data.get('unidad_medida', producto.unidad_medida)
+        genero              = request.data.get('genero', producto.genero)
 
         if categoria_id:
             producto.categoria = get_object_or_404(Categoria, id=categoria_id)
         if subcategoria_id:
             producto.subcategoria = get_object_or_404(SubCategoria, id=subcategoria_id)
+        if proveedor_id:
+            producto.proveedor = get_object_or_404(Proveedor, id=proveedor_id)
 
         producto.nombre = nombre
         producto.descripcion = descripcion
         producto.precio_compra = precio_compra
         producto.porcentaje_ganancia = porcentaje_ganancia
         producto.codigo_busqueda = codigo_busqueda
+        producto.unidad_medida = unidad_medida
+        producto.genero = genero
 
         if imagen:
             producto.imagen = imagen
