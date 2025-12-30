@@ -35,7 +35,7 @@ def create_supplier(request):
     try:
         nombre_empresa = request.data.get('nombre_empresa')
         ciudad           = request.data.get('ciudad')
-        descripcion      = request.data.get('descripcion')
+        descripcion      = request.data.get('descripcion', '')
         # ruc              = request.data.get('ruc', 'Prueba')
         # email            = request.data.get('email', 'pruebas@mail.com')
 
@@ -52,11 +52,6 @@ def create_supplier(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        if not descripcion:
-            return Response(
-                {"error": "La descripción es obligatoria."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
         
         # Validación de unicidad contra registros NO eliminados
         if Proveedor.objects.filter(nombre_empresa__iexact=nombre_empresa).exists():
@@ -1021,10 +1016,10 @@ def update_orden_detalle(request, pk):
     try:
         detalle = get_object_or_404(OrdenProveedorDetalle, pk=pk)
         
-        nombre = request.data.get('nombre', detalle.nombre)
+        nombre        = request.data.get('nombre', detalle.nombre)
         precio_compra = request.data.get('precio_compra', detalle.precio_compra)
-        cantidad = request.data.get('cantidad', detalle.cantidad)
-        notas = request.data.get('notas', detalle.notas)
+        cantidad      = request.data.get('cantidad', detalle.cantidad)
+        notas         = request.data.get('notas', detalle.notas)
 
         # Actualizar campos
         detalle.nombre = nombre

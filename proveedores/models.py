@@ -63,12 +63,19 @@ class OrdenProveedor(BaseModel):
         verbose_name="Fecha de Orden"
     )
     
+    """
+    value	     Label Frontend	   Label Django
+    pendiente	 En Cotización	   En Cotización
+    confirmada	 Pagada	           Pagada
+    en_transito	 En Tránsito	   En Tránsito
+    recibida	 Inventariada	   Inventariada
+    """
+    
     ESTADO_CHOICES = [
-        ('pendiente', 'Pendiente'),
-        ('confirmada', 'Confirmada'),
+        ('pendiente', 'En Cotización'),
+        ('confirmada', 'Pagada'),
         ('en_transito', 'En Tránsito'),
-        ('recibida', 'Recibida'),
-        ('cancelada', 'Cancelada'),
+        ('recibida', 'Inventariada'),
     ]
     
     estado = models.CharField(

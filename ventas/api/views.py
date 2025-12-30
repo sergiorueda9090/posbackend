@@ -147,6 +147,56 @@ def create_venta(request):
                         status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, RolePermission(VENTA_MANAGER_ROLES)])
+def get_siguiente_codigo_venta_v2(request):
+    """
+    Genera el siguiente código de venta consecutivo (versión robusta).
+    Busca el número más alto en todos los códigos existentes.
+    Formato: V-00001, V-00002, etc.
+    """
+    try:
+        from django.db.models import Max
+        from django.db.models.functions import Cast, Substr
+        from django.db.models import IntegerField
+        
+        # Obtener todas las ventas y extraer el número más alto
+        ventas = Venta.objects.all()
+        
+        if not ventas.exists():
+            # Primera venta
+            siguiente_numero = 1
+        else:
+            # Extraer números de todos los códigos y encontrar el máximo
+            numeros = []
+            for venta in ventas:
+                if venta.codigo:
+                    try:
+                        # Extraer número del formato "V-00001"
+                        numero = int(venta.codigo.split('-')[-1])
+                        numeros.append(numero)
+                    except (ValueError, IndexError):
+                        continue
+            
+            if numeros:
+                siguiente_numero = max(numeros) + 1
+            else:
+                siguiente_numero = 1
+        
+        # Formatear con ceros a la izquierda (5 dígitos)
+        codigo_venta_formateado = f"V-{siguiente_numero:05d}"
+        
+        return Response({
+            "siguiente_codigo": codigo_venta_formateado,
+            "numero": siguiente_numero
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        return Response(
+            {"error": f"Error al generar código de venta: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+    
 # ======================================================
 # Listar Ventas (GET)
 # ======================================================
