@@ -1,4 +1,5 @@
 # proveedor/views.py
+from tarjetabancaria.models import TarjetaBancaria
 from rest_framework.response import Response
 from django.db.models import Sum, Count
 from rest_framework import status
@@ -374,6 +375,7 @@ def create_orden_proveedor(request):
     """
     try:
         proveedor_id  = request.data.get('proveedor_id')
+        tarjeta_id    = request.data.get('tarjeta_id')
         numero_orden  = request.data.get('numero_orden')
         estado        = request.data.get('estado', 'pendiente')
         notas         = request.data.get('notas', '')
@@ -383,6 +385,12 @@ def create_orden_proveedor(request):
         if not proveedor_id:
             return Response(
                 {"error": "El ID del proveedor es obligatorio."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not tarjeta_id:
+            return Response(
+                {"error": "El ID de la tarjeta bancaria es obligatorio."},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -408,11 +416,20 @@ def create_orden_proveedor(request):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        tarjeta = get_object_or_404(TarjetaBancaria, pk=tarjeta_id)
+        
+        if tarjeta is None:
+            return Response(
+                {"error": "La tarjeta bancaria especificada no existe."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         # Transacción para crear orden y detalles
         with transaction.atomic():
             # Crear la orden
             orden = OrdenProveedor.objects.create(
                 proveedor=proveedor,
+                tarjeta=tarjeta,
                 numero_orden=numero_orden,
                 estado=estado,
                 notas=notas,
@@ -469,6 +486,10 @@ def create_orden_proveedor(request):
             "proveedor": {
                 "id": orden.proveedor.id,
                 "nombre_empresa": orden.proveedor.nombre_empresa
+            },
+            "tarjeta": {
+                "id": orden.tarjeta.id,
+                "nombre": orden.tarjeta.nombre
             },
             "numero_orden": orden.numero_orden,
             "fecha_orden": orden.fecha_orden,
@@ -673,11 +694,11 @@ def list_proveedores_con_ordenes(request):
                 
                 # Mapear estado al formato del frontend
                 estado_map = {
-                    'pendiente': 'Pendiente',
-                    'confirmada': 'Confirmada',
-                    'en_transito': 'En tránsito',
-                    'recibida': 'Entregado',
-                    'cancelada': 'Cancelada',
+                    'pendiente': 'pendiente',
+                    'confirmada': 'confirmada',
+                    'en_transito': 'en_transito',
+                    'recibida':    'recibida',
+                    'cancelada': 'cancelada',
                 }
                 
                 ordenes_pedido.append({
@@ -690,7 +711,8 @@ def list_proveedores_con_ordenes(request):
                     "cantidad_productos": detalles.count(),
                     "cantidad_total": cantidad_total,
                     "productos_resumen": productos_resumen,
-                    "productos": productos_detalle  # 🔥 Lista completa de productos
+                    "productos": productos_detalle,  # 🔥 Lista completa de productos
+                    "tarjeta_bancaria": orden.tarjeta.nombre if orden.tarjeta else ""  # 🔥 Nombre de la tarjeta usada
                 })
                 
                 total_proveedor += float(orden.total)
@@ -1295,5 +1317,60 @@ def descargar_orden_pdf(request, orden_id):
     except Exception as e:
         return Response(
             {"error": f"Error al generar el PDF: {str(e)}"},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+
+## Actualizar Estado de Orden de Proveedor (PATCH)
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated, RolePermission(SUPPLIER_MANAGER_ROLES)])
+def update_orden_estado(request, pk):
+    """
+    Actualiza únicamente el estado de una orden de proveedor.
+    Espera:
+    {
+        "estado": "en_transito"
+    }
+    """
+    try:
+        # Obtener la orden
+        orden = get_object_or_404(OrdenProveedor, pk=pk)
+
+        # Obtener el nuevo estado del request
+        nuevo_estado = request.data.get('estado')
+
+        # Validar que se envió el estado
+        if not nuevo_estado:
+            return Response(
+                {"error": "El campo 'estado' es obligatorio."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Validar que el estado sea uno de los permitidos
+        estados_permitidos = ['pendiente', 'confirmada', 'en_transito', 'recibida']
+        if nuevo_estado not in estados_permitidos:
+            return Response(
+                {
+                    "error": f"Estado inválido. Los estados permitidos son: {', '.join(estados_permitidos)}"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Actualizar el estado
+        orden.estado = nuevo_estado
+        orden.save(update_fields=['estado', 'updated_at'])
+
+        # Responder con la orden actualizada
+        data = {
+            "id": orden.id,
+            "numero_orden": orden.numero_orden,
+            "estado": orden.estado,
+            "updated_at": orden.updated_at,
+        }
+        return Response(data, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        return Response(
+            {"error": f"Error inesperado al actualizar el estado: {str(e)}"},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )

@@ -18,6 +18,7 @@ urlpatterns = [
     path('ordenes/create/',             views.create_orden_proveedor,       name='create_orden_proveedor'),
     path('ordenes/<int:pk>/',           views.get_orden_proveedor,          name='get_orden_proveedor'),
     path('ordenes/<int:pk>/update/',    views.update_orden_proveedor,       name='update_orden_proveedor'),
+    path('ordenes/<int:pk>/update-estado/', views.update_orden_estado,      name='update_orden_estado'),
     path('ordenes/<int:pk>/delete/',    views.delete_orden_proveedor,       name='delete_orden_proveedor'),
     
     # === DETALLES DE ORDEN ===

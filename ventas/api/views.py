@@ -1,3 +1,4 @@
+from tarjetabancaria.models import TarjetaBancaria
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -16,6 +17,7 @@ from ventas.models import Venta, DetalleVenta
 from productos.models import Producto
 from clientes.models import Cliente
 from inventarioproducto.models import InventarioProducto
+from proveedores.models import OrdenProveedorDetalle
 
 import json
 VENTA_MANAGER_ROLES = ['admin', 'vendedor']  # Ajusta según tu modelo de permisos
@@ -34,6 +36,7 @@ def create_venta(request):
             # 🔹 Validar y obtener campos base
             # ===============================
             cliente_id    = data.get('cliente_id')
+            tarjeta_id    = data.get('tarjeta_id')
             metodo_pago   = data.get('metodo_pago', 'Efectivo')
             recibido      = Decimal(data.get('recibido', '0'))
             cambio        = Decimal(data.get('cambio', '0'))
@@ -43,6 +46,22 @@ def create_venta(request):
             total         = Decimal(data.get('total', '0'))
             items         = data.get('items', [])
 
+            
+            # el tarjeta_id es obligatorio siempre es obligatorio
+            if not tarjeta_id:
+                return Response(
+                    {"error": "El campo 'tarjeta_id' es obligatorio."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+            tarjeta = get_object_or_404(TarjetaBancaria, id=tarjeta_id)
+
+            if tarjeta is None:
+                return Response(
+                    {"error": "La tarjeta bancaria especificada no existe."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
             # Si items llega como string JSON, decodificarlo
             if isinstance(items, str):
                 try:
@@ -80,11 +99,12 @@ def create_venta(request):
                 descuento   = descuento,
                 impuesto    = impuesto,
                 total       = total,
-                creado_por  = request.user
+                creado_por  = request.user,
+                tarjeta     = tarjeta
             )
 
             # ===============================
-            # 🔹 Crear detalle y actualizar inventario (FIFO)
+            # 🔹 Validar stock y crear detalles de venta
             # ===============================
             for item in items:
                 producto_id     = item.get('id')
@@ -92,6 +112,40 @@ def create_venta(request):
                 precio_unitario = Decimal(item.get('precio_final', '0'))
 
                 producto = get_object_or_404(Producto, id=producto_id)
+
+                # ======================================================
+                # 🔹 Calcular stock disponible desde órdenes de proveedor
+                # ======================================================
+                # Stock recibido = suma de cantidades en órdenes con estado 'recibida'
+                cantidad_recibida = (
+                    OrdenProveedorDetalle.objects
+                    .filter(
+                        orden_proveedor__estado='recibida',
+                        producto_id=producto_id,
+                        deleted_at__isnull=True
+                    )
+                    .aggregate(total=Sum('cantidad'))['total'] or 0
+                )
+
+                # Stock vendido = suma de cantidades en ventas (excluyendo la venta actual)
+                cantidad_vendida = (
+                    DetalleVenta.objects
+                    .filter(
+                        producto_id=producto_id,
+                        deleted_at__isnull=True
+                    )
+                    .aggregate(total=Sum('cantidad'))['total'] or 0
+                )
+
+                # Stock disponible
+                stock_disponible = cantidad_recibida - cantidad_vendida
+
+                # Validar que hay suficiente stock
+                if stock_disponible < cantidad:
+                    raise IntegrityError(
+                        f"Stock insuficiente para '{producto.nombre}'. "
+                        f"Disponible: {stock_disponible}, Solicitado: {cantidad}"
+                    )
 
                 # Crear detalle de venta
                 DetalleVenta.objects.create(
@@ -101,32 +155,6 @@ def create_venta(request):
                     precio_unitario = precio_unitario,
                 )
 
-                # ======================================================
-                # 🔹 Descontar unidades del inventario (FIFO)
-                # ======================================================
-                inventarios = InventarioProducto.objects.filter(
-                    producto=producto
-                ).order_by('fecha_ingreso')  # FIFO: más antiguo primero
-
-                cantidad_restante = cantidad
-
-                for inv in inventarios:
-                    if cantidad_restante <= 0:
-                        break
-
-                    if inv.cantidad_unidades >= cantidad_restante:
-                        inv.cantidad_unidades -= cantidad_restante
-                        inv.save(update_fields=['cantidad_unidades', 'fecha_actualizacion'])
-                        cantidad_restante = 0
-                    else:
-                        cantidad_restante -= inv.cantidad_unidades
-                        inv.cantidad_unidades = 0
-                        inv.save(update_fields=['cantidad_unidades', 'fecha_actualizacion'])
-
-                # Si no hay suficiente stock, lanzar error
-                if cantidad_restante > 0:
-                    raise IntegrityError(f"Inventario insuficiente para el producto {producto.nombre}")
-
             # ===============================
             # 🔹 Respuesta final
             # ===============================
@@ -134,7 +162,7 @@ def create_venta(request):
                 "id"     : venta.id,
                 "codigo" : venta.codigo,
                 "cliente": venta.cliente.nombre if venta.cliente else "Venta rápida",
-                "mensaje": "✅ Venta creada correctamente y stock actualizado (FIFO)."
+                "mensaje": "✅ Venta creada correctamente. Stock validado desde órdenes de proveedor."
             }
 
             return Response(response_data, status=status.HTTP_201_CREATED)

@@ -12,6 +12,7 @@ from datetime import datetime, time
 from user.api.permissions import RolePermission
 from productos.models import Producto
 from inventarioproducto.models import InventarioProducto
+from proveedores.models import OrdenProveedorDetalle
 
 # Roles que pueden gestionar inventarios
 INVENTORY_MANAGER_ROLES = ['admin', 'manager', 'almacenista']
@@ -276,15 +277,41 @@ def get_inventario_by_producto(request, producto_id):
   
 def get_total_unidades_producto_call(producto_id):
     """
-        Retorna la cantidad total de unidades disponibles para un producto,
-        sumando todos los registros de inventario activos.
+    Retorna la cantidad total de unidades disponibles para un producto.
+
+    Cálculo: Stock Disponible = Cantidad Recibida - Cantidad Vendida
+
+    - Cantidad Recibida: Suma de cantidades en órdenes de proveedor con estado 'recibida'
+    - Cantidad Vendida: Suma de cantidades en detalles de ventas
     """
     try:
-        total = (
-            InventarioProducto.objects
-            .filter(producto_id=producto_id, deleted_at__isnull=True)
-            .aggregate(total_unidades=Sum('cantidad_unidades'))['total_unidades'] or 0
+        # Importar aquí para evitar importación circular
+        from ventas.models import DetalleVenta
+
+        # Cantidad recibida desde órdenes de proveedor
+        cantidad_recibida = (
+            OrdenProveedorDetalle.objects
+            .filter(
+                orden_proveedor__estado='recibida',
+                producto_id=producto_id,
+                deleted_at__isnull=True
+            )
+            .aggregate(total=Sum('cantidad'))['total'] or 0
         )
-        return total
+
+        # Cantidad vendida desde ventas
+        cantidad_vendida = (
+            DetalleVenta.objects
+            .filter(
+                producto_id=producto_id,
+                deleted_at__isnull=True
+            )
+            .aggregate(total=Sum('cantidad'))['total'] or 0
+        )
+
+        # Stock disponible = recibido - vendido
+        stock_disponible = cantidad_recibida - cantidad_vendida
+
+        return stock_disponible
     except Exception as e:
         return 0

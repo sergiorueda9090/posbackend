@@ -2,6 +2,7 @@
 from django.db import models
 from user.models import User 
 from user.base.models import BaseModel # Importa tu modelo base
+from tarjetabancaria.models import TarjetaBancaria
 from django.core.validators import MinValueValidator
 from decimal import Decimal
 
@@ -50,6 +51,15 @@ class OrdenProveedor(BaseModel):
         related_name='ordenes',
         verbose_name="Proveedor"
     )
+
+    tarjeta = models.ForeignKey(
+        TarjetaBancaria,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='ordenes_proveedor',
+        verbose_name="Tarjeta Bancaria",
+        default=None
+    )
     
     numero_orden = models.CharField(
         max_length=50,
@@ -70,7 +80,7 @@ class OrdenProveedor(BaseModel):
     en_transito	 En Tránsito	   En Tránsito
     recibida	 Inventariada	   Inventariada
     """
-    
+
     ESTADO_CHOICES = [
         ('pendiente', 'En Cotización'),
         ('confirmada', 'Pagada'),

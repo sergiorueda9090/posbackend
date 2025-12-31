@@ -4,7 +4,7 @@ from user.models import User
 from user.base.models import BaseModel
 from productos.models import Producto
 from clientes.models import Cliente  # si manejas clientes registrados
-
+from tarjetabancaria.models import TarjetaBancaria
 
 class Venta(BaseModel):
     """
@@ -39,6 +39,15 @@ class Venta(BaseModel):
         choices=METODOS_PAGO,
         default='Efectivo',
         verbose_name="Método de Pago"
+    )
+
+    tarjeta = models.ForeignKey(
+        TarjetaBancaria,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='ventas',
+        verbose_name="Tarjeta Bancaria",
+        default=None
     )
 
     subtotal = models.DecimalField(
