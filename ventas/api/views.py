@@ -110,50 +110,105 @@ def create_venta(request):
                 producto_id     = item.get('id')
                 cantidad        = int(item.get('quantity', 1))
                 precio_unitario = Decimal(item.get('precio_final', '0'))
-
-                producto = get_object_or_404(Producto, id=producto_id)
+                is_combo        = item.get('isCombo', False)
+                combo_id        = item.get('combo_id')
+                combo_productos = item.get('combo_productos', [])
 
                 # ======================================================
-                # 🔹 Calcular stock disponible desde órdenes de proveedor
+                # 🔹 CASO 1: Es un combo
                 # ======================================================
-                # Stock recibido = suma de cantidades en órdenes con estado 'recibida'
-                cantidad_recibida = (
-                    OrdenProveedorDetalle.objects
-                    .filter(
-                        orden_proveedor__estado='recibida',
-                        producto_id=producto_id,
-                        deleted_at__isnull=True
+                if is_combo and combo_id and combo_productos:
+                    from combos.models import Combo
+                    combo = get_object_or_404(Combo, id=combo_id)
+
+                    # Validar stock para cada producto del combo
+                    for cp in combo_productos:
+                        producto_combo_id = cp.get('producto_id')
+                        cantidad_combo = int(cp.get('cantidad', 1))
+                        cantidad_total = cantidad_combo * cantidad  # cantidad del combo * cantidad de combos vendidos
+
+                        producto = get_object_or_404(Producto, id=producto_combo_id)
+
+                        # Calcular stock disponible
+                        cantidad_recibida = (
+                            OrdenProveedorDetalle.objects
+                            .filter(
+                                orden_proveedor__estado='recibida',
+                                producto_id=producto_combo_id,
+                                deleted_at__isnull=True
+                            )
+                            .aggregate(total=Sum('cantidad'))['total'] or 0
+                        )
+
+                        cantidad_vendida = (
+                            DetalleVenta.objects
+                            .filter(
+                                producto_id=producto_combo_id,
+                                deleted_at__isnull=True
+                            )
+                            .aggregate(total=Sum('cantidad'))['total'] or 0
+                        )
+
+                        stock_disponible = cantidad_recibida - cantidad_vendida
+
+                        # Validar stock
+                        if stock_disponible < cantidad_total:
+                            raise IntegrityError(
+                                f"Stock insuficiente para '{producto.nombre}' en combo '{combo.nombre}'. "
+                                f"Disponible: {stock_disponible}, Solicitado: {cantidad_total}"
+                            )
+
+                        # Crear detalle de venta para cada producto del combo
+                        DetalleVenta.objects.create(
+                            venta           = venta,
+                            producto        = producto,
+                            cantidad        = cantidad_total,
+                            precio_unitario = Decimal(cp.get('precio_combo', '0')),
+                            combo           = combo,  # Referenciar el combo
+                        )
+
+                # ======================================================
+                # 🔹 CASO 2: Es un producto individual
+                # ======================================================
+                else:
+                    producto = get_object_or_404(Producto, id=producto_id)
+
+                    # Calcular stock disponible
+                    cantidad_recibida = (
+                        OrdenProveedorDetalle.objects
+                        .filter(
+                            orden_proveedor__estado='recibida',
+                            producto_id=producto_id,
+                            deleted_at__isnull=True
+                        )
+                        .aggregate(total=Sum('cantidad'))['total'] or 0
                     )
-                    .aggregate(total=Sum('cantidad'))['total'] or 0
-                )
 
-                # Stock vendido = suma de cantidades en ventas (excluyendo la venta actual)
-                cantidad_vendida = (
-                    DetalleVenta.objects
-                    .filter(
-                        producto_id=producto_id,
-                        deleted_at__isnull=True
-                    )
-                    .aggregate(total=Sum('cantidad'))['total'] or 0
-                )
-
-                # Stock disponible
-                stock_disponible = cantidad_recibida - cantidad_vendida
-
-                # Validar que hay suficiente stock
-                if stock_disponible < cantidad:
-                    raise IntegrityError(
-                        f"Stock insuficiente para '{producto.nombre}'. "
-                        f"Disponible: {stock_disponible}, Solicitado: {cantidad}"
+                    cantidad_vendida = (
+                        DetalleVenta.objects
+                        .filter(
+                            producto_id=producto_id,
+                            deleted_at__isnull=True
+                        )
+                        .aggregate(total=Sum('cantidad'))['total'] or 0
                     )
 
-                # Crear detalle de venta
-                DetalleVenta.objects.create(
-                    venta           = venta,
-                    producto        = producto,
-                    cantidad        = cantidad,
-                    precio_unitario = precio_unitario,
-                )
+                    stock_disponible = cantidad_recibida - cantidad_vendida
+
+                    # Validar stock
+                    if stock_disponible < cantidad:
+                        raise IntegrityError(
+                            f"Stock insuficiente para '{producto.nombre}'. "
+                            f"Disponible: {stock_disponible}, Solicitado: {cantidad}"
+                        )
+
+                    # Crear detalle de venta
+                    DetalleVenta.objects.create(
+                        venta           = venta,
+                        producto        = producto,
+                        cantidad        = cantidad,
+                        precio_unitario = precio_unitario,
+                    )
 
             # ===============================
             # 🔹 Respuesta final

@@ -141,6 +141,14 @@ class DetalleVenta(BaseModel):
         verbose_name="Precio Unitario"
     )
 
+    combo = models.ForeignKey(
+        'combos.Combo',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='ventas_detalle',
+        verbose_name="Combo"
+    )
 
     class Meta:
         verbose_name = "Detalle de Venta"

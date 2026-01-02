@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     'utilidadocacional',
     'ventas',
     'devoluciones',
+    'combos',
 ]
 
 MIDDLEWARE = [
