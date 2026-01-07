@@ -170,6 +170,8 @@ def update_combo(request, pk):
     try:
         nombre = request.data.get('nombre', combo.nombre)
         activo = request.data.get('activo', combo.activo)
+        if isinstance(activo, str):
+            activo = activo.lower() in ['true', '1', 'yes']
 
         # Validar nombre único si cambió
         if nombre != combo.nombre:
