@@ -15,7 +15,13 @@ class Venta(BaseModel):
     METODOS_PAGO = [
         ('Efectivo', 'Efectivo'),
         ('Tarjeta', 'Tarjeta'),
+        ('Tarjeta Debito', 'Tarjeta Debito'),
+        ('Tarjeta Credito', 'Tarjeta Credito'),
+        ('Daviplata', 'Daviplata'),
+        ('Nequi', 'Nequi'),
+        ('Bancolombia', 'Bancolombia'),
         ('Transferencia', 'Transferencia'),
+        ('Mixto', 'Mixto'),
         ('Otro', 'Otro'),
     ]
 
@@ -35,7 +41,7 @@ class Venta(BaseModel):
     )
 
     metodo_pago = models.CharField(
-        max_length=20,
+        max_length=50,
         choices=METODOS_PAGO,
         default='Efectivo',
         verbose_name="Método de Pago"
@@ -45,6 +51,7 @@ class Venta(BaseModel):
         TarjetaBancaria,
         on_delete=models.SET_NULL,
         null=True,
+        blank=True,
         related_name='ventas',
         verbose_name="Tarjeta Bancaria",
         default=None
@@ -108,6 +115,50 @@ class Venta(BaseModel):
 
     def __str__(self):
         return f"Venta #{self.codigo}"
+
+
+class PagoVenta(BaseModel):
+    """
+    Modelo para registrar cada método de pago utilizado en una venta.
+    Permite pagos mixtos (ej: parte en efectivo, parte con tarjeta).
+    """
+
+    venta = models.ForeignKey(
+        Venta,
+        on_delete=models.CASCADE,
+        related_name="pagos",
+        verbose_name="Venta"
+    )
+
+    metodo_pago = models.CharField(
+        max_length=50,
+        verbose_name="Método de Pago"
+    )
+
+    monto = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        verbose_name="Monto Pagado"
+    )
+
+    tarjeta = models.ForeignKey(
+        TarjetaBancaria,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='pagos_venta',
+        verbose_name="Tarjeta Bancaria"
+    )
+
+    class Meta:
+        verbose_name = "Pago de Venta"
+        verbose_name_plural = "Pagos de Ventas"
+        db_table = "pagos_venta"
+        ordering = ['venta']
+
+    def __str__(self):
+        return f"{self.metodo_pago}: {self.monto}"
 
 
 class DetalleVenta(BaseModel):

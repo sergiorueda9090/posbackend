@@ -13,7 +13,7 @@ from django.utils import timezone
 from datetime import datetime, timedelta
 
 from user.api.permissions import RolePermission
-from ventas.models import Venta, DetalleVenta
+from ventas.models import Venta, DetalleVenta, PagoVenta
 from productos.models import Producto
 from clientes.models import Cliente
 from inventarioproducto.models import InventarioProducto
@@ -33,7 +33,7 @@ def create_venta(request):
             data = request.data
 
             # ===============================
-            # 🔹 Validar y obtener campos base
+            # Validar y obtener campos base
             # ===============================
             cliente_id    = data.get('cliente_id')
             tarjeta_id    = data.get('tarjeta_id')
@@ -45,30 +45,69 @@ def create_venta(request):
             impuesto      = Decimal(data.get('impuesto', '0'))
             total         = Decimal(data.get('total', '0'))
             items         = data.get('items', [])
+            pagos         = data.get('pagos', [])
 
-            
-            # el tarjeta_id es obligatorio siempre es obligatorio
-            if not tarjeta_id:
-                return Response(
-                    {"error": "El campo 'tarjeta_id' es obligatorio."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-        
-            tarjeta = get_object_or_404(TarjetaBancaria, id=tarjeta_id)
+            # Decodificar pagos si llega como string JSON
+            if isinstance(pagos, str):
+                try:
+                    pagos = json.loads(pagos)
+                except json.JSONDecodeError:
+                    return Response(
+                        {"error": "Formato invalido para 'pagos'. Debe ser JSON valido."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
 
-            if tarjeta is None:
-                return Response(
-                    {"error": "La tarjeta bancaria especificada no existe."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
+            # Si no se envian pagos, mantener compatibilidad con el flujo anterior
+            if not pagos:
+                if not tarjeta_id:
+                    return Response(
+                        {"error": "El campo 'tarjeta_id' es obligatorio."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                tarjeta = get_object_or_404(TarjetaBancaria, id=tarjeta_id)
+            else:
+                # Validar que pagos sea una lista con al menos un pago
+                if not isinstance(pagos, list) or len(pagos) == 0:
+                    return Response(
+                        {"error": "'pagos' debe ser una lista con al menos un metodo de pago."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                # Validar que la suma de los montos cubra al menos el total
+                suma_pagos = sum(Decimal(str(p.get('monto', '0'))) for p in pagos)
+                if suma_pagos < total - Decimal('0.99'):
+                    return Response(
+                        {"error": f"La suma de los pagos ({suma_pagos}) no cubre el total de la venta ({total})."},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                # Si el cliente pago de mas, registrar el cambio
+                if suma_pagos > total:
+                    cambio = suma_pagos - total
+
+                # Determinar metodo_pago resumen
+                metodos_usados = list(set(p.get('metodo_pago', '') for p in pagos))
+                if len(metodos_usados) == 1:
+                    metodo_pago = metodos_usados[0]
+                else:
+                    metodo_pago = 'Mixto'
+
+                # tarjeta principal: la del primer pago que tenga tarjeta_id
+                tarjeta_id = None
+                tarjeta = None
+                for p in pagos:
+                    if p.get('tarjeta_id'):
+                        tarjeta_id = p['tarjeta_id']
+                        tarjeta = get_object_or_404(TarjetaBancaria, id=tarjeta_id)
+                        break
+
             # Si items llega como string JSON, decodificarlo
             if isinstance(items, str):
                 try:
                     items = json.loads(items)
                 except json.JSONDecodeError:
                     return Response(
-                        {"error": "Formato inválido para 'items'. Debe ser JSON válido."},
+                        {"error": "Formato invalido para 'items'. Debe ser JSON valido."},
                         status=status.HTTP_400_BAD_REQUEST
                     )
 
@@ -85,7 +124,7 @@ def create_venta(request):
                 )
 
             # ===============================
-            # 🔹 Crear venta principal
+            # Crear venta principal
             # ===============================
             cliente = get_object_or_404(Cliente, id=cliente_id) if cliente_id else None
 
@@ -102,6 +141,29 @@ def create_venta(request):
                 creado_por  = request.user,
                 tarjeta     = tarjeta
             )
+
+            # ===============================
+            # Crear registros de pagos
+            # ===============================
+            if pagos:
+                for pago in pagos:
+                    pago_tarjeta = None
+                    if pago.get('tarjeta_id'):
+                        pago_tarjeta = get_object_or_404(TarjetaBancaria, id=pago['tarjeta_id'])
+                    PagoVenta.objects.create(
+                        venta=venta,
+                        metodo_pago=pago.get('metodo_pago', 'Efectivo'),
+                        monto=Decimal(str(pago.get('monto', '0'))),
+                        tarjeta=pago_tarjeta,
+                    )
+            else:
+                # Compatibilidad: crear un solo PagoVenta con el metodo_pago original
+                PagoVenta.objects.create(
+                    venta=venta,
+                    metodo_pago=metodo_pago,
+                    monto=total,
+                    tarjeta=tarjeta,
+                )
 
             # ===============================
             # 🔹 Validar stock y crear detalles de venta
@@ -287,7 +349,7 @@ def get_siguiente_codigo_venta_v2(request):
 @permission_classes([IsAuthenticated, RolePermission(VENTA_MANAGER_ROLES)])
 def list_ventas(request):
     try:
-        ventas = Venta.objects.select_related('cliente', 'creado_por').prefetch_related('detalles').all()
+        ventas = Venta.objects.select_related('cliente', 'creado_por').prefetch_related('detalles', 'pagos').all()
 
         search = request.query_params.get('search')
         metodo_pago = request.query_params.get('metodo_pago')
@@ -308,11 +370,20 @@ def list_ventas(request):
 
         data = []
         for v in page:
+            pagos_list = [
+                {
+                    "metodo_pago": p.metodo_pago,
+                    "monto": float(p.monto),
+                    "tarjeta": p.tarjeta.nombre if p.tarjeta else None,
+                }
+                for p in v.pagos.all()
+            ]
             data.append({
                 "id": v.id,
                 "codigo": v.codigo,
                 "cliente": v.cliente.nombre if v.cliente else "Venta rápida",
                 "metodo_pago": v.metodo_pago,
+                "pagos": pagos_list,
                 "subtotal": float(v.subtotal),
                 "impuesto": float(v.impuesto),
                 "total": float(v.total),
@@ -477,11 +548,14 @@ def reporte_ventas(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
-    # === 2️⃣ Obtener ventas del rango ===
+    # === 2 Obtener ventas del rango ===
     ventas = (
         Venta.objects.filter(created_at__range=[inicio, fin])
         .select_related("cliente", "creado_por")
-        .prefetch_related(Prefetch("detalles", queryset=DetalleVenta.objects.select_related("producto")))
+        .prefetch_related(
+            Prefetch("detalles", queryset=DetalleVenta.objects.select_related("producto")),
+            Prefetch("pagos"),
+        )
         .order_by("-created_at")
     )
 
@@ -507,10 +581,11 @@ def reporte_ventas(request):
         "total_unidades"
     ] or 0
 
-    # === 5️⃣ Desglose por método de pago ===
+    # === 5 Desglose por metodo de pago (desde PagoVenta) ===
     metodos_pago = (
-        ventas.values("metodo_pago")
-        .annotate(total=Sum("total"))
+        PagoVenta.objects.filter(venta__in=ventas, deleted_at__isnull=True)
+        .values("metodo_pago")
+        .annotate(total=Sum("monto"))
         .order_by("metodo_pago")
     )
 
@@ -539,12 +614,22 @@ def reporte_ventas(request):
             for d in venta.detalles.all()
         ]
 
+        pagos_detalle = [
+            {
+                "metodo_pago": p.metodo_pago,
+                "monto": float(p.monto),
+                "tarjeta": p.tarjeta.nombre if p.tarjeta else None,
+            }
+            for p in venta.pagos.all()
+        ]
+
         detalle_ventas.append(
             {
                 "id": venta.id,
                 "codigo": venta.codigo,
                 "cliente": venta.cliente.nombre if venta.cliente else "Cliente no registrado",
                 "metodo_pago": venta.metodo_pago,
+                "pagos": pagos_detalle,
                 "subtotal": float(venta.subtotal),
                 "descuento": float(venta.descuento),
                 "impuesto": float(venta.impuesto),
