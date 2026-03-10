@@ -365,7 +365,9 @@ def list_ventas(request):
         ventas = ventas.order_by('-creado_en')
 
         paginator = PageNumberPagination()
-        paginator.page_size = 10
+        paginator.page_size_query_param = 'page_size'
+        paginator.page_size = 20
+        paginator.max_page_size = 200
         page = paginator.paginate_queryset(ventas, request)
 
         data = []

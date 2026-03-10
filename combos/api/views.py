@@ -100,7 +100,9 @@ def list_combos(request):
         combos = combos.order_by('-created_at')
 
         paginator = PageNumberPagination()
-        paginator.page_size = 10
+        paginator.page_size_query_param = 'page_size'
+        paginator.page_size = 20
+        paginator.max_page_size = 200
         page = paginator.paginate_queryset(combos, request)
 
         data = []

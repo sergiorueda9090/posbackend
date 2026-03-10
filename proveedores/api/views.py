@@ -162,7 +162,9 @@ def list_suppliers(request):
         
         # 3. Aplicar paginación
         paginator = PageNumberPagination()
-        paginator.page_size = 10 
+        paginator.page_size_query_param = 'page_size'
+        paginator.page_size = 20
+        paginator.max_page_size = 200
         paginated_suppliers = paginator.paginate_queryset(proveedores, request)
 
         # 4. Serialización manual de los datos
@@ -570,7 +572,9 @@ def list_ordenes_proveedor(request):
         
         # Paginación
         paginator = PageNumberPagination()
-        paginator.page_size = 10
+        paginator.page_size_query_param = 'page_size'
+        paginator.page_size = 20
+        paginator.max_page_size = 200
         paginated_ordenes = paginator.paginate_queryset(ordenes, request)
 
         # Serialización
@@ -637,7 +641,9 @@ def list_proveedores_con_ordenes(request):
         
         # Paginación
         paginator = PageNumberPagination()
-        paginator.page_size = 10
+        paginator.page_size_query_param = 'page_size'
+        paginator.page_size = 20
+        paginator.max_page_size = 200
         paginated_proveedores = paginator.paginate_queryset(proveedores, request)
 
         # Serialización

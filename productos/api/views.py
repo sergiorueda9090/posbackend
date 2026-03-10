@@ -127,7 +127,9 @@ def list_products(request):
         productos = productos.order_by('-created_at')
 
         paginator = PageNumberPagination()
-        paginator.page_size = 10
+        paginator.page_size_query_param = 'page_size'
+        paginator.page_size = 20
+        paginator.max_page_size = 200
         page = paginator.paginate_queryset(productos, request)
         
         data = [{
@@ -188,8 +190,8 @@ def get_product(request, pk):
 @api_view(['PUT', 'PATCH'])
 @permission_classes([IsAuthenticated, RolePermission(PRODUCT_MANAGER_ROLES)])
 @parser_classes([MultiPartParser, FormParser])
-def update_product(request, id):
-    producto = get_object_or_404(Producto, id=id)
+def update_product(request, pk):
+    producto = get_object_or_404(Producto, pk=pk)
     try:
         categoria_id        = request.data.get('categoria_id')
         subcategoria_id     = request.data.get('subcategoria_id')

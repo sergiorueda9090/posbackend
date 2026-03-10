@@ -113,7 +113,9 @@ def list_inventarios(request):
 
         # --- Paginación ---
         paginator = PageNumberPagination()
-        paginator.page_size = 15
+        paginator.page_size_query_param = 'page_size'
+        paginator.page_size = 20
+        paginator.max_page_size = 200
         paginated_inventarios = paginator.paginate_queryset(inventarios, request)
 
         data = [serialize_inventario(i) for i in paginated_inventarios]

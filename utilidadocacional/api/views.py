@@ -145,7 +145,9 @@ def list_utilidades(request):
         
         # --- 4. Paginación ---
         paginator = PageNumberPagination()
-        paginator.page_size = 15 
+        paginator.page_size_query_param = 'page_size'
+        paginator.page_size = 20
+        paginator.max_page_size = 200
         paginated_utilidades = paginator.paginate_queryset(utilidades, request)
 
         # --- 5. Serialización ---

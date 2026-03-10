@@ -155,7 +155,9 @@ def list_recepciones_pago(request):
 
         # --- 4. Paginación ---
         paginator = PageNumberPagination()
-        paginator.page_size = 15 # Más ítems por ser transacciones
+        paginator.page_size_query_param = 'page_size'
+        paginator.page_size = 20
+        paginator.max_page_size = 200
         # La paginación se aplica al queryset *filtrado*
         paginated_pagos = paginator.paginate_queryset(pagos, request)
 

@@ -126,7 +126,9 @@ def list_clients(request):
         
         # 3. Aplicar paginación
         paginator = PageNumberPagination()
-        paginator.page_size = 30 
+        paginator.page_size_query_param = 'page_size'
+        paginator.page_size = 20
+        paginator.max_page_size = 200
         paginated_clients = paginator.paginate_queryset(clientes, request)
 
         # 4. Serialización manual de los datos

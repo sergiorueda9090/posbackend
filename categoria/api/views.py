@@ -118,7 +118,9 @@ def list_categories(request):
         
         # 3. IMPLEMENTACIÓN DE PAGINACIÓN
         paginator = PageNumberPagination()
-        paginator.page_size = 10 # Define el número de elementos por página
+        paginator.page_size_query_param = 'page_size'
+        paginator.page_size = 20
+        paginator.max_page_size = 200
         paginated_categories = paginator.paginate_queryset(categorias, request)
 
         # 4. Serializar los datos de la página actual

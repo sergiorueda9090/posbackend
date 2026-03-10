@@ -212,7 +212,9 @@ def list_devoluciones(request):
     # PAGINACIÓN
     # ===============================
     paginator = PageNumberPagination()
+    paginator.page_size_query_param = 'page_size'
     paginator.page_size = 20
+    paginator.max_page_size = 200
     page = paginator.paginate_queryset(queryset, request)
 
     data = [serialize_devolucion(dev, productos_dict) for dev in page]

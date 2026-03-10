@@ -126,7 +126,9 @@ def list_cargos(request):
 
         # Paginación
         paginator = PageNumberPagination()
-        paginator.page_size = 15
+        paginator.page_size_query_param = 'page_size'
+        paginator.page_size = 20
+        paginator.max_page_size = 200
         paginated_cargos = paginator.paginate_queryset(cargos, request)
 
         data = [serialize_cargo(c) for c in paginated_cargos]

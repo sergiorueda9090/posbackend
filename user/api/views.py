@@ -152,7 +152,9 @@ def list_users(request):
 
         # 4. Aplicar paginación manualmente
         paginator = PageNumberPagination()
-        paginator.page_size = 5  # puedes ajustar o leer desde settings
+        paginator.page_size_query_param = 'page_size'
+        paginator.page_size = 20
+        paginator.max_page_size = 200
         paginated_users = paginator.paginate_queryset(users, request)
 
         return paginator.get_paginated_response(paginated_users)

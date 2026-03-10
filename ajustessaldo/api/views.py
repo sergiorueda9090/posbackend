@@ -148,7 +148,9 @@ def list_ajustes(request):
 
         # --- 4. Paginación ---
         paginator = PageNumberPagination()
-        paginator.page_size = 15 
+        paginator.page_size_query_param = 'page_size'
+        paginator.page_size = 20
+        paginator.max_page_size = 200
         paginated_ajustes = paginator.paginate_queryset(ajustes, request)
 
         # --- 5. Serialización ---
