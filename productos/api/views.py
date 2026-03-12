@@ -41,10 +41,10 @@ def create_product(request):
         codigo_busqueda     = request.data.get('codigo_busqueda')
         imagen              = request.FILES.get('imagen')
         unidad_medida       = request.data.get('unidad_medida')
-        genero              = request.data.get('genero')
+        genero              = request.data.get('genero', 'U')
         #cantidad_inicial    = int(request.data.get('cantidad', 0))
 
-        if not all([categoria_id, nombre, precio_compra, porcentaje_ganancia, codigo_busqueda, unidad_medida, genero, proveedor_id]):
+        if not all([categoria_id, nombre, precio_compra, porcentaje_ganancia, codigo_busqueda, unidad_medida, proveedor_id]):
             return Response({"error": "Campos obligatorios faltantes."}, status=status.HTTP_400_BAD_REQUEST)
 
         precio_compra       = Decimal(remove_thousand_separators(precio_compra))
@@ -107,8 +107,8 @@ def create_product(request):
 @permission_classes([IsAuthenticated, RolePermission(PRODUCT_MANAGER_ROLES)])
 def list_products(request):
     try:
-        productos = Producto.objects.select_related('categoria', 'subcategoria', 'creado_por').all()
-
+        productos = Producto.objects.select_related('categoria', 'subcategoria', 'creado_por').filter(id=49)
+        print("===== Productos encontrados =====", productos.query)
         search          = request.query_params.get('search')
         categoria_id    = request.query_params.get('categoria_id')
         subcategoria_id = request.query_params.get('subcategoria_id')
