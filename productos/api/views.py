@@ -107,7 +107,7 @@ def create_product(request):
 @permission_classes([IsAuthenticated, RolePermission(PRODUCT_MANAGER_ROLES)])
 def list_products(request):
     try:
-        productos = Producto.objects.select_related('categoria', 'subcategoria', 'creado_por').filter(id=49)
+        productos = Producto.objects.select_related('categoria', 'subcategoria', 'creado_por').all()
         print("===== Productos encontrados =====", productos.query)
         search          = request.query_params.get('search')
         categoria_id    = request.query_params.get('categoria_id')
