@@ -198,8 +198,8 @@ def update_product(request, pk):
         proveedor_id        = request.data.get('proveedor_id')
         nombre              = request.data.get('nombre', producto.nombre)
         descripcion         = request.data.get('descripcion', producto.descripcion)
-        precio_compra       = request.data.get('precio_compra', producto.precio_compra)
-        porcentaje_ganancia = request.data.get('porcentaje_ganancia', producto.porcentaje_ganancia)
+        precio_compra_raw   = request.data.get('precio_compra')
+        porcentaje_raw      = request.data.get('porcentaje_ganancia')
         codigo_busqueda     = request.data.get('codigo_busqueda', producto.codigo_busqueda)
         imagen              = request.FILES.get('imagen')
         unidad_medida       = request.data.get('unidad_medida', producto.unidad_medida)
@@ -214,8 +214,10 @@ def update_product(request, pk):
 
         producto.nombre = nombre
         producto.descripcion = descripcion
-        producto.precio_compra = precio_compra
-        producto.porcentaje_ganancia = porcentaje_ganancia
+        if precio_compra_raw is not None:
+            producto.precio_compra = Decimal(remove_thousand_separators(precio_compra_raw))
+        if porcentaje_raw is not None:
+            producto.porcentaje_ganancia = Decimal(str(porcentaje_raw))
         producto.codigo_busqueda = codigo_busqueda
         producto.unidad_medida = unidad_medida
         producto.genero = genero
@@ -226,7 +228,25 @@ def update_product(request, pk):
         producto.calcular_precio_final()
         producto.save()
 
-        return Response({"message": "Producto actualizado correctamente."}, status=status.HTTP_200_OK)
+        data = {
+            "id": producto.id,
+            "categoria": producto.categoria.nombre if producto.categoria else None,
+            "subcategoria": producto.subcategoria.nombre if producto.subcategoria else None,
+            "proveedor": producto.proveedor.nombre_empresa if producto.proveedor else None,
+            "nombre": producto.nombre,
+            "descripcion": producto.descripcion,
+            "precio_compra": producto.precio_compra,
+            "porcentaje_ganancia": producto.porcentaje_ganancia,
+            "precio_final": producto.precio_final,
+            "codigo_busqueda": producto.codigo_busqueda,
+            "imagen_url": producto.imagen.url if producto.imagen else None,
+            "unidad_medida": producto.unidad_medida,
+            "genero": producto.genero,
+            "creado_por": producto.creado_por.username if producto.creado_por else None,
+            "created_at": producto.created_at,
+            "cantidad": get_total_unidades_producto_call(producto.id),
+        }
+        return Response(data, status=status.HTTP_200_OK)
 
     except Exception as e:
         return Response({"error": f"Error al actualizar el producto: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
