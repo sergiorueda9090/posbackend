@@ -11,6 +11,7 @@ from decimal import Decimal
 from user.api.permissions import RolePermission
 from combos.models import Combo, ProductoCombo
 from productos.models import Producto
+from categoria.models import Categoria
 from proveedores.models import OrdenProveedorDetalle
 from ventas.models import DetalleVenta
 
@@ -133,20 +134,25 @@ def list_combos(request):
 @permission_classes([IsAuthenticated, RolePermission(COMBO_MANAGER_ROLES)])
 def get_combo(request, pk):
     combo = get_object_or_404(
-        Combo.objects.prefetch_related('productos_combo__producto'),
+        Combo.objects.prefetch_related('productos_combo__producto', 'productos_combo__categoria'),
         pk=pk
     )
 
     productos = []
     for pc in combo.productos_combo.all():
-        productos.append({
+        item = {
             "id": pc.id,
-            "producto_id": pc.producto.id,
-            "producto_nombre": pc.producto.nombre,
             "precio_combo": float(pc.precio_combo),
             "cantidad": pc.cantidad,
             "subtotal": float(pc.precio_combo * pc.cantidad),
-        })
+        }
+        if pc.producto:
+            item["producto_id"] = pc.producto.id
+            item["producto_nombre"] = pc.producto.nombre
+        if pc.categoria:
+            item["categoria_id"] = pc.categoria.id
+            item["categoria_nombre"] = pc.categoria.nombre
+        productos.append(item)
 
     data = {
         "id": combo.id,
@@ -234,19 +240,25 @@ def add_product_to_combo(request, pk):
     combo = get_object_or_404(Combo, pk=pk)
 
     try:
-        producto_id = request.data.get('producto_id')
+        producto_id  = request.data.get('producto_id')
+        categoria_id = request.data.get('categoria_id')
         precio_combo = request.data.get('precio_combo')
-        cantidad = request.data.get('cantidad', 1)
+        cantidad     = request.data.get('cantidad', 1)
 
-        if not producto_id or not precio_combo:
+        if not precio_combo:
             return Response(
-                {"error": "producto_id y precio_combo son obligatorios."},
+                {"error": "precio_combo es obligatorio."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        producto = get_object_or_404(Producto, id=producto_id)
+        if not producto_id and not categoria_id:
+            return Response(
+                {"error": "producto_id o categoria_id es obligatorio."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         precio_combo = Decimal(precio_combo)
-        cantidad = int(cantidad)
+        cantidad     = int(cantidad)
 
         if cantidad < 1:
             return Response(
@@ -254,28 +266,57 @@ def add_product_to_combo(request, pk):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Validar que el producto no esté ya en el combo
-        if ProductoCombo.objects.filter(combo=combo, producto=producto).exists():
-            return Response(
-                {"error": "Este producto ya está en el combo."},
-                status=status.HTTP_400_BAD_REQUEST
+        if producto_id:
+            # Flujo original: agregar producto individual
+            producto = get_object_or_404(Producto, id=producto_id)
+
+            if ProductoCombo.objects.filter(combo=combo, producto=producto).exists():
+                return Response(
+                    {"error": "Este producto ya está en el combo."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            producto_combo = ProductoCombo.objects.create(
+                combo=combo,
+                producto=producto,
+                precio_combo=precio_combo,
+                cantidad=cantidad
             )
 
-        producto_combo = ProductoCombo.objects.create(
-            combo=combo,
-            producto=producto,
-            precio_combo=precio_combo,
-            cantidad=cantidad
-        )
+            data = {
+                "id": producto_combo.id,
+                "producto_id": producto.id,
+                "producto_nombre": producto.nombre,
+                "precio_combo": float(producto_combo.precio_combo),
+                "cantidad": producto_combo.cantidad,
+                "subtotal": float(producto_combo.precio_combo * producto_combo.cantidad),
+            }
 
-        data = {
-            "id": producto_combo.id,
-            "producto_id": producto.id,
-            "producto_nombre": producto.nombre,
-            "precio_combo": float(producto_combo.precio_combo),
-            "cantidad": producto_combo.cantidad,
-            "subtotal": float(producto_combo.precio_combo * producto_combo.cantidad),
-        }
+        else:
+            # Flujo nuevo: agregar por categoría
+            categoria = get_object_or_404(Categoria, id=categoria_id)
+
+            if ProductoCombo.objects.filter(combo=combo, categoria=categoria).exists():
+                return Response(
+                    {"error": "Esta categoría ya está en el combo."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            producto_combo = ProductoCombo.objects.create(
+                combo=combo,
+                categoria=categoria,
+                precio_combo=precio_combo,
+                cantidad=cantidad
+            )
+
+            data = {
+                "id": producto_combo.id,
+                "categoria_id": categoria.id,
+                "categoria_nombre": categoria.nombre,
+                "precio_combo": float(producto_combo.precio_combo),
+                "cantidad": producto_combo.cantidad,
+                "subtotal": float(producto_combo.precio_combo * producto_combo.cantidad),
+            }
 
         return Response(data, status=status.HTTP_201_CREATED)
 

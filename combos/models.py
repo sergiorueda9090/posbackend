@@ -2,6 +2,7 @@ from django.db import models
 from user.models import User
 from user.base.models import BaseModel
 from productos.models import Producto
+from categoria.models import Categoria
 from decimal import Decimal
 
 
@@ -68,8 +69,19 @@ class ProductoCombo(BaseModel):
     producto = models.ForeignKey(
         Producto,
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name='combos',
         verbose_name="Producto"
+    )
+
+    categoria = models.ForeignKey(
+        Categoria,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='combos',
+        verbose_name="Categoría"
     )
 
     precio_combo = models.DecimalField(
@@ -88,7 +100,8 @@ class ProductoCombo(BaseModel):
         verbose_name_plural = "Productos en Combos"
         db_table = "producto_combo"
         ordering = ['combo', 'producto']
-        unique_together = ['combo', 'producto']
 
     def __str__(self):
-        return f"{self.producto.nombre} en {self.combo.nombre}"
+        if self.producto:
+            return f"{self.producto.nombre} en {self.combo.nombre}"
+        return f"Categoría {self.categoria.nombre} en {self.combo.nombre}"
