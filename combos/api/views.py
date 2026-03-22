@@ -410,43 +410,59 @@ def get_active_combos(request):
             productos_info = []
             stock_minimo = float('inf')  # Para calcular cuántos combos se pueden vender
 
+            tiene_productos_individuales = False
+
             for pc in combo.productos_combo.all():
-                # Calcular stock disponible del producto
-                cantidad_recibida = (
-                    OrdenProveedorDetalle.objects
-                    .filter(
-                        orden_proveedor__estado='recibida',
-                        producto_id=pc.producto.id,
-                        deleted_at__isnull=True
+                if pc.producto:
+                    tiene_productos_individuales = True
+                    # Flujo producto individual: calcular stock
+                    cantidad_recibida = (
+                        OrdenProveedorDetalle.objects
+                        .filter(
+                            orden_proveedor__estado='recibida',
+                            producto_id=pc.producto.id,
+                            deleted_at__isnull=True
+                        )
+                        .aggregate(total=Sum('cantidad'))['total'] or 0
                     )
-                    .aggregate(total=Sum('cantidad'))['total'] or 0
-                )
 
-                cantidad_vendida = (
-                    DetalleVenta.objects
-                    .filter(
-                        producto_id=pc.producto.id,
-                        deleted_at__isnull=True
+                    cantidad_vendida = (
+                        DetalleVenta.objects
+                        .filter(
+                            producto_id=pc.producto.id,
+                            deleted_at__isnull=True
+                        )
+                        .aggregate(total=Sum('cantidad'))['total'] or 0
                     )
-                    .aggregate(total=Sum('cantidad'))['total'] or 0
-                )
 
-                stock_disponible = cantidad_recibida - cantidad_vendida
+                    stock_disponible = cantidad_recibida - cantidad_vendida
 
-                # Calcular cuántos combos se pueden hacer con este producto
-                combos_posibles = stock_disponible // pc.cantidad if pc.cantidad > 0 else 0
-                stock_minimo = min(stock_minimo, combos_posibles)
+                    combos_posibles = stock_disponible // pc.cantidad if pc.cantidad > 0 else 0
+                    stock_minimo = min(stock_minimo, combos_posibles)
 
-                productos_info.append({
-                    "producto_id": pc.producto.id,
-                    "producto_nombre": pc.producto.nombre,
-                    "precio_combo": float(pc.precio_combo),
-                    "cantidad": pc.cantidad,
-                    "stock_disponible": stock_disponible,
-                })
+                    productos_info.append({
+                        "producto_id": pc.producto.id,
+                        "producto_nombre": pc.producto.nombre,
+                        "precio_combo": float(pc.precio_combo),
+                        "cantidad": pc.cantidad,
+                        "stock_disponible": stock_disponible,
+                    })
+                elif pc.categoria:
+                    # Flujo categoría: el stock se determina al elegir producto en el POS
+                    productos_info.append({
+                        "categoria_id": pc.categoria.id,
+                        "categoria_nombre": pc.categoria.nombre,
+                        "precio_combo": float(pc.precio_combo),
+                        "cantidad": pc.cantidad,
+                        "stock_disponible": None,
+                    })
 
-            # Si stock_minimo es infinito, significa que no hay productos en el combo
-            cantidad_maxima_combos = int(stock_minimo) if stock_minimo != float('inf') else 0
+            if tiene_productos_individuales:
+                # Stock limitado por los productos individuales
+                cantidad_maxima_combos = int(stock_minimo) if stock_minimo != float('inf') else 0
+            else:
+                # Solo categorías: disponible sin límite de stock fijo (se valida al elegir producto)
+                cantidad_maxima_combos = 999
 
             data.append({
                 "id": combo.id,
