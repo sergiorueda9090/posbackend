@@ -458,7 +458,7 @@ def delete_venta(request, pk):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, RolePermission(['admin'])])
+@permission_classes([IsAuthenticated])
 def resumen_ventas_view(request):
     """
     Retorna el total de ventas y unidades vendidas del día actual o de un rango personalizado.
@@ -468,22 +468,31 @@ def resumen_ventas_view(request):
     """
     try:
         # Obtener parámetros GET (si existen)
-        fecha_inicio = request.GET.get("start_date")
-        fecha_fin = request.GET.get("end_date")
+        fecha_inicio_param = request.GET.get("start_date")
+        fecha_fin_param = request.GET.get("end_date")
 
-        if fecha_inicio and fecha_fin:
-            # ✅ Si se envía rango de fechas
-            fecha_inicio = datetime.strptime(fecha_inicio, "%Y-%m-%d")
-            fecha_fin = datetime.strptime(fecha_fin, "%Y-%m-%d") + timedelta(days=1)
+        tz = timezone.get_current_timezone()
 
-            ventas = Venta.objects.filter(created_at__range=(fecha_inicio, fecha_fin))
-            detalles = DetalleVenta.objects.filter(venta__created_at__range=(fecha_inicio, fecha_fin))
-
+        if fecha_inicio_param and fecha_fin_param:
+            # ✅ Si se envía rango de fechas: 00:00:00 del start hasta 23:59:59 del end (hora local)
+            fecha_inicio_date = datetime.strptime(fecha_inicio_param, "%Y-%m-%d").date()
+            fecha_fin_date = datetime.strptime(fecha_fin_param, "%Y-%m-%d").date()
         else:
-            # ✅ Si no se envían fechas: mostrar solo las ventas de hoy
-            hoy = timezone.now().date()
-            ventas = Venta.objects.filter(created_at__date=hoy)
-            detalles = DetalleVenta.objects.filter(venta__created_at__date=hoy)
+            # ✅ Sin fechas: usar el día local actual
+            hoy = timezone.localdate()
+            fecha_inicio_date = hoy
+            fecha_fin_date = hoy
+
+        # Construir rango aware: 00:00:00 inicio → 23:59:59.999999 fin (hora local Bogotá)
+        inicio_dt = timezone.make_aware(
+            datetime.combine(fecha_inicio_date, datetime.min.time()), tz
+        )
+        fin_dt = timezone.make_aware(
+            datetime.combine(fecha_fin_date, datetime.max.time()), tz
+        )
+
+        ventas = Venta.objects.filter(created_at__range=(inicio_dt, fin_dt))
+        detalles = DetalleVenta.objects.filter(venta__created_at__range=(inicio_dt, fin_dt))
 
         # 💰 Total de ventas
         total_ventas = ventas.aggregate(total=Sum("total"))["total"] or 0
@@ -494,12 +503,12 @@ def resumen_ventas_view(request):
         # 📊 Total de transacciones
         total_transacciones = ventas.count()
 
-        #Respuesta JSON
-
         return Response({
             "status": "sucess",
-            "fecha_inicio": fecha_inicio.strftime("%Y-%m-%d") if fecha_inicio else str(hoy),
-            "fecha_fin": (fecha_fin - timedelta(days=1)).strftime("%Y-%m-%d") if fecha_fin else str(hoy),
+            "fecha_inicio": fecha_inicio_date.strftime("%Y-%m-%d"),
+            "fecha_fin": fecha_fin_date.strftime("%Y-%m-%d"),
+            "rango_inicio": inicio_dt.isoformat(),
+            "rango_fin": fin_dt.isoformat(),
             "total_ventas": float(total_ventas),
             "total_unidades_vendidas": int(total_unidades),
             "total_transacciones": total_transacciones
