@@ -320,9 +320,9 @@ def add_product_to_combo(request, pk):
 
         return Response(data, status=status.HTTP_201_CREATED)
 
-    except IntegrityError:
+    except IntegrityError as e:
         return Response(
-            {"error": "Error de integridad al agregar el producto."},
+            {"error": f"Error de integridad al agregar el producto: {str(e)}"},
             status=status.HTTP_400_BAD_REQUEST
         )
     except Exception as e:
